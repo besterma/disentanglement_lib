@@ -28,6 +28,11 @@ import numpy as np
 import tensorflow as tf
 import gin.tf.external_configurables  # pylint: disable=unused-import
 import gin.tf
+import sys
+
+
+sys.path.append('../PopulationBasedTraining')
+from PopulationBasedTraining.main import pbt_main
 
 
 def train_with_gin(model_dir,
@@ -139,6 +144,16 @@ def train(model_dir,
   results_dict["elapsed_time"] = time.time() - experiment_timer
   results.update_result_directory(results_dir, "train", results_dict)
 
+def pbt(model_dir, random_seed=gin.REQUIRED):
+    """Runs a pbt run and exports the snapshot and the gin config.
+
+    The use of this function requires the gin binding 'dataset.name' to be
+    specified as that determines the data set used for training.
+    dataset = util.torch_data_set_generator_from_ground_truth_data()
+
+    """
+    dataset = util.torch_data_set_generator_from_ground_truth_data(named_data.get_named_ground_truth_data(), random_seed)
+    pbt_main(dataset=dataset, random_seed=random_seed)
 
 def _make_input_fn(ground_truth_data, seed, num_batches=None):
   """Creates an input function for the experiments."""
