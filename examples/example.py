@@ -29,11 +29,14 @@ In this example, we show how to use disentanglement_lib to:
 7. Print out the final Pandas data frame with the results.
 """
 
+
 # We group all the imports at the top.
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import os
+import sys
+sys.path.extend(['/home/besterma/ETH/Semester_Thesis/Python/disentanglement_lib'])
 from disentanglement_lib.evaluation import evaluate
 from disentanglement_lib.evaluation.metrics import utils
 from disentanglement_lib.methods.unsupervised import train
@@ -50,19 +53,23 @@ base_path = "example_output"
 
 # By default, we do not overwrite output directories. Set this to True, if you
 # want to overwrite (in particular, if you rerun this script several times).
-overwrite = False
+overwrite = True
 
 # 1. Train a standard VAE (already implemented in disentanglement_lib).
 # ------------------------------------------------------------------------------
 
+
+
+print("example: start pbt")
 # We save the results in a `vae` subfolder.
-path_vae = os.path.join(base_path, "vae")
+path_pbt = os.path.join(base_path, "pbt")
+train.pbt_with_gin(os.path.join(path_pbt, "model"), overwrite, ["pbt.gin"])
+print("example: finished pbt")
 
 # The main training protocol of disentanglement_lib is defined in the
 # disentanglement_lib.methods.unsupervised.train module. To configure
 # training we need to provide a gin config. For a standard VAE, you may have a
 # look at model.gin on how to do this.
-train.train_with_gin(os.path.join(path_vae, "model"), overwrite, ["model.gin"])
 # After this command, you should have a `vae` subfolder with a model that was
 # trained for a few steps (in reality, you will want to train many more steps).
 

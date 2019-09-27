@@ -29,11 +29,14 @@ import tensorflow as tf
 import gin.tf.external_configurables  # pylint: disable=unused-import
 import gin.tf
 import sys
+from shutil import copyfile
+from torch.optim import Adam
 
 
-sys.path.append('../PopulationBasedTraining')
-from PopulationBasedTraining.main import pbt_main
-
+sys.path.append('/home/besterma/ETH/Semester_Thesis/Python/PopulationBasedTraining') #TODO get proper imports
+from main import pbt_main
+sys.path.append('/home/besterma/ETH/Semester_Thesis/Python/beta-tcvae')
+from vae_quant import UDRVAE
 
 def train_with_gin(model_dir,
                    overwrite=False,
@@ -56,6 +59,30 @@ def train_with_gin(model_dir,
     gin_bindings = []
   gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
   train(model_dir, overwrite)
+  gin.clear_config()
+
+def pbt_with_gin(model_dir,
+                 overwrite=False,
+                 gin_config_files=None,
+                 gin_bindings=None):
+  """Trains a model based on the provided gin configuration.
+
+  This function will set the provided gin bindings, call the train() function
+  and clear the gin config. Please see train() for required gin bindings.
+
+  Args:
+    model_dir: String with path to directory where model output should be saved.
+    overwrite: Boolean indicating whether to overwrite output directory.
+    gin_config_files: List of gin config files to load.
+    gin_bindings: List of gin bindings to use.
+  """
+  if gin_config_files is None:
+      gin_config_files = []
+  if gin_bindings is None:
+      gin_bindings = []
+  gin.external_configurable(Adam, module='torch')
+  gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
+  pbt(model_dir, overwrite)
   gin.clear_config()
 
 
@@ -144,7 +171,9 @@ def train(model_dir,
   results_dict["elapsed_time"] = time.time() - experiment_timer
   results.update_result_directory(results_dir, "train", results_dict)
 
-def pbt(model_dir, random_seed=gin.REQUIRED):
+
+@gin.configurable(blacklist=["model_dir", "overwrite"])
+def pbt(model_dir, overwrite=False, random_seed=gin.REQUIRED):
     """Runs a pbt run and exports the snapshot and the gin config.
 
     The use of this function requires the gin binding 'dataset.name' to be
@@ -152,8 +181,27 @@ def pbt(model_dir, random_seed=gin.REQUIRED):
     dataset = util.torch_data_set_generator_from_ground_truth_data()
 
     """
-    dataset = util.torch_data_set_generator_from_ground_truth_data(named_data.get_named_ground_truth_data(), random_seed)
-    pbt_main(dataset=dataset, random_seed=random_seed)
+    print("dislib: start pbt")
+    if tf.gfile.IsDirectory(model_dir):
+        if overwrite:
+            tf.gfile.DeleteRecursively(model_dir)
+        else:
+            raise ValueError("Directory already exists and overwrite is False.")
+    random_state = np.random.RandomState(random_seed)
+    dataset = util.torch_data_set_generator_from_ground_truth_data(named_data.get_named_ground_truth_data(), random_state.randint(2**32))
+    # Set up time to keep track of elapsed time in results.
+    experiment_timer = time.time()
+    id, udr_score, mig = pbt_main(model_dir=model_dir, dataset=dataset, random_seed=random_seed)
+    print("dislib: finished pbt")
+    output_shape = named_data.get_named_ground_truth_data().observation_shape
+    module_export_path = os.path.join(model_dir, "tfhub")
+    copyfile(os.path.join(model_dir, "checkpoints/task-{:03d}.pth".format(id)),
+             os.path.join(module_export_path, "model.pth"))
+
+    results_dict = {"reconstruction_loss": None, "elbo": None, "regularizer": None, "kl_loss": None} # TODO generate those values, right now we use what we have
+    results_dict = {"udr_score": udr_score, "mig": mig} # TODO these values are not computed on the same data split, recompute?
+    results_dir = os.path.join(model_dir, "results")
+    results.update_result_directory(results_dir, "train", results_dict)
 
 def _make_input_fn(ground_truth_data, seed, num_batches=None):
   """Creates an input function for the experiments."""
