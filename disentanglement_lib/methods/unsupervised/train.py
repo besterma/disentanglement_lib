@@ -32,10 +32,9 @@ import sys
 from shutil import copyfile
 from torch.optim import Adam
 
-
-sys.path.append('/home/besterma/ETH/Semester_Thesis/Python/PopulationBasedTraining') #TODO get proper imports
+sys.path.append('/home/disentanglement/Python/PopulationBasedTraining') #TODO get proper imports
 from main import pbt_main
-sys.path.append('/home/besterma/ETH/Semester_Thesis/Python/beta-tcvae')
+sys.path.append('/home/disentanglement/Python/beta-tcvae')
 from vae_quant import UDRVAE
 
 def train_with_gin(model_dir,
