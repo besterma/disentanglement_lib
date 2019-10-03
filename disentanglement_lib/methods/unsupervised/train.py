@@ -189,10 +189,10 @@ def pbt(model_dir, overwrite=False, random_seed=gin.REQUIRED):
         else:
             raise ValueError("Directory already exists and overwrite is False.")
     random_state = np.random.RandomState(random_seed)
-    dataset = util.torch_data_set_generator_from_ground_truth_data(named_data.get_named_ground_truth_data(), random_state.randint(2**32))
+    dataset_iterator = named_data.get_named_ground_truth_data()
     # Set up time to keep track of elapsed time in results.
     experiment_timer = time.time()
-    id, udr_score, mig = pbt_main(model_dir=model_dir, dataset=dataset, random_seed=random_seed)
+    id, udr_score, mig = pbt_main(model_dir=model_dir, dataset=dataset_iterator, random_seed=random_seed)
     print("dislib: finished pbt")
     output_shape = named_data.get_named_ground_truth_data().observation_shape
     module_export_path = os.path.join(model_dir, "tfhub")
