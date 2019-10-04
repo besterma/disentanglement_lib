@@ -121,6 +121,7 @@ def evaluate(model_dir,
     from vae_quant import VAE
     # Path to TFHub module of previously trained representation.
     module_path = os.path.join(model_dir, "tfhub")
+    #TODO: get these inputs from gin files
     model = VAE(z_dim=10, use_cuda=True, tcvae=True, conv=True, device=0)
     #TODO: here maybe general case for >4 GPUs
     checkpoint = torch.load(module_path + "/model.pth",
