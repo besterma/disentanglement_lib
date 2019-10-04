@@ -32,8 +32,8 @@ vae_trainer.UdrVaeTrainer.is_test_run = True
 vae_trainer.UdrVaeTrainer.score_num_labels = None
 vae_trainer.UdrVaeTrainer.epoch_train_steps = 100000
 vae_trainer.UdrVaeTrainer.batch_size_init_function = @get_init_batch_size
-vae_trainer.UdrVaeTrainer.beta_init_function = @get_init_lr
-vae_trainer.UdrVaeTrainer.lr_init_function = @get_init_beta
+vae_trainer.UdrVaeTrainer.beta_init_function = @get_init_beta
+vae_trainer.UdrVaeTrainer.lr_init_function = @get_init_lr
 
 vae_quant.UDRVAE.z_dim = 10
 vae_quant.UDRVAE.use_cuda = True
