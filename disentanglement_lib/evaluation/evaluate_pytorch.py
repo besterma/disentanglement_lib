@@ -36,8 +36,7 @@ import tensorflow as tf
 import tensorflow_hub as hub
 import gin.tf
 import sys
-sys.path.append("../../../beta-tcvae/")
-from vae_quant import VAE
+
 import torch
 
 

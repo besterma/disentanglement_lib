@@ -54,7 +54,8 @@ if __name__ == "__main__":
     # 0. Settings
     # ------------------------------------------------------------------------------
     # By default, we save all the results in subdirectories of the following path.
-    base_path = "example_output"
+    base_path = '/home/disentanglement/Python/disentanglement_lib/models/50/'
+    model_path = os.path.join(base_path, "model")
 
     # By default, we do not overwrite output directories. Set this to True, if you
     # want to overwrite (in particular, if you rerun this script several times).
@@ -63,25 +64,49 @@ if __name__ == "__main__":
     # 1. Start a pbt run (already implemented in disentanglement_lib).
     # ------------------------------------------------------------------------------
 
-    path_pbt = os.path.join(base_path, "pbt")
-    model_path = os.path.join(path_pbt, "model")
 
-    pbt_gin = ["pbt.gin"]
     ### start trainign ##
+    # training the pbt model
+
+    #pbt_gin = ["pbt.gin"]
     #train.pbt_with_gin(model_path, overwrite, pbt_gin)
 
-
-
-    # The main training protocol of disentanglement_lib is defined in the
-    # disentanglement_lib.methods.unsupervised.train module. To configure
-    # training we need to provide a gin config. For a standard VAE, you may have a
-    # look at model.gin on how to do this.
-    # After this command, you should have a `vae` subfolder with a model that was
-    # trained for a few steps (in reality, you will want to train many more steps).
-
     ### pbt step 2 ###
-    representation_path = os.path.join(base_path, "representation")
-    postprocess_gin = ["postprocess.gin"]  # This contains the settings.
-    # postprocess.postprocess_with_gin defines the standard extraction protocol.
-    postprocess.postprocess_with_gin(model_path, representation_path, overwrite,
-                                   postprocess_gin)
+
+    ### for now we skip postprocessing and directly evaluate the representation using the model itself
+    # representation_path = os.path.join(base_path, "representation")
+    # postprocess_gin = ["postprocess.gin"]  # This contains the settings.
+    # # postprocess.postprocess_with_gin defines the standard extraction protocol.
+    # postprocess.postprocess_with_gin(model_path, representation_path, overwrite,
+    #                                postprocess_gin)
+
+    ### pbt step 3 --- score computation ###
+
+    # To compute the score, we again call the evaluation protocol with a gin
+    # configuration. At this point, note that for all steps, we have to set a
+    # random seed (in this case via `evaluation.random_seed`).
+    gin_bindings = [
+        "evaluation.evaluation_fn = @mig",
+        "dataset.name='dsprites_full'",
+        "evaluation.random_seed = 0",
+        "mig.num_train=50000",
+        "mig.batch_size=10000",
+        "discretizer.discretizer_fn = @histogram_discretizer",
+        "discretizer.num_bins = 20"
+    ]
+
+    # for now fix
+    #TODO: change results folder name for MIG, etc. and run for other fcns
+    result_path = os.path.join(model_path, "metrics", "mean")
+    evaluate.evaluate_with_gin(
+        model_path, result_path, overwrite, gin_bindings=gin_bindings, pytorch=True)
+
+    pattern = os.path.join(base_path,
+                           "*/metrics/*/results/aggregate/evaluation.json")
+    results_path = os.path.join(base_path, "results.json")
+    aggregate_results.aggregate_results_to_json(
+        pattern, results_path)
+
+    model_results = aggregate_results.load_aggregated_json_results(results_path)
+    print(model_results)
+    model_results.to_csv(os.path.join(model_path, "summary.csv"))
