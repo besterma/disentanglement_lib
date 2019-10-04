@@ -54,7 +54,7 @@ if __name__ == "__main__":
     # 0. Settings
     # ------------------------------------------------------------------------------
     # By default, we save all the results in subdirectories of the following path.
-    base_path = '/home/disentanglement/Python/disentanglement_lib/models/50/'
+    base_path = '/home/disentanglement/Python/disentanglement_lib/examples/models/50/'
     model_path = os.path.join(base_path, "model")
 
     # By default, we do not overwrite output directories. Set this to True, if you
@@ -109,4 +109,3 @@ if __name__ == "__main__":
 
     model_results = aggregate_results.load_aggregated_json_results(results_path)
     print(model_results)
-    model_results.to_csv(os.path.join(model_path, "summary.csv"))
