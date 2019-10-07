@@ -106,8 +106,14 @@ def evaluate(model_dir,
   # is present.
   if gin.query_parameter("dataset.name") == "auto":
     # Obtain the dataset name from the gin config of the previous step.
-    gin_config_file = os.path.join(model_dir, "results", "gin",
-                                   "postprocess.gin")
+
+    #edited for pytorch case
+    if(pytorch):
+      gin_config_file = os.path.join(model_dir, "results", "gin",
+                                     "train.gin")
+    else:
+      gin_config_file = os.path.join(model_dir, "results", "gin",
+                                     "postprocess.gin")
     gin_dict = results.gin_dict(gin_config_file)
     with gin.unlock_config():
       gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(

@@ -31,7 +31,7 @@ def compute_mig(ground_truth_data,
                 representation_function,
                 random_state,
                 num_train=gin.REQUIRED,
-                batch_size=16):
+                batch_size=16): #FIXME: somehow solve batch size issue
   """Computes the mutual information gap.
 
   Args:
