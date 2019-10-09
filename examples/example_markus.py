@@ -46,6 +46,7 @@ from disentanglement_lib.methods.unsupervised import train
 from disentanglement_lib.methods.unsupervised import vae
 from disentanglement_lib.postprocessing import postprocess
 from disentanglement_lib.utils import aggregate_results
+from disentanglement_lib.visualize.visualize_model import visualize
 import tensorflow as tf
 import gin.tf
 
@@ -54,6 +55,7 @@ if __name__ == "__main__":
     # 0. Settings
     # ------------------------------------------------------------------------------
     # By default, we save all the results in subdirectories of the following path.
+    # base_path = '/home/disentanglement/Python/disentanglement_lib/examples/example_output/pbt_vae/'
     base_path = '/home/disentanglement/Python/disentanglement_lib/examples/models/50/'
     model_path = os.path.join(base_path, "model")
 
@@ -109,3 +111,10 @@ if __name__ == "__main__":
 
     model_results = aggregate_results.load_aggregated_json_results(results_path)
     print(model_results)
+
+    # adding viz to example
+    viz_path = os.path.join(model_path, "viz")
+    visualize(model_path,
+              viz_path,
+              overwrite=True,
+              pytorch=True)
