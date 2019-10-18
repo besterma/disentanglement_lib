@@ -230,7 +230,7 @@ def visualize(model_dir,
     xs, x_params, zs, z_params = model.reconstruct_img(x)
     pics = xs.cpu().detach().numpy()
     pics = np.swapaxes(pics, 1, -1)
-    # pics = np.swapaxes(pics, 1, 2)
+    pics = np.swapaxes(pics, 1, 2)
 
     paired_pics = np.concatenate((real_pics, pics), axis=2)
     paired_pics = [paired_pics[i, :, :, :] for i in range(paired_pics.shape[0])]
@@ -244,15 +244,6 @@ def visualize(model_dir,
     # save decoded samples
 
     # Save samples.
-    def _decoder(latent_vectors):
-      xs, xs_params = model.decode(random_codes)
-      xs = xs.cpu().detach().numpy()
-      xs_params = xs_params.cpu().detach().numpy()
-
-      xs = np.swapaxes(xs, 1, -1)
-      # xs = np.swapaxes(xs, 1, 2)
-      # return xs, xs_params
-      return xs
 
     # num_latent = int(gin_dict["encoder.num_latent"])
     num_latent = 10
@@ -260,13 +251,12 @@ def visualize(model_dir,
     random_codes = random_state.normal(0, 1, [num_pics, num_latent])
     random_codes = torch.from_numpy(random_codes).to(0)
     random_codes = random_codes.type(dtype=torch.float32)
-    # xs, xs_params = _decoder(random_codes)
     xs, xs_params = model.decode(random_codes)
     xs = xs.cpu().detach().numpy()
     xs_params = xs_params.cpu().detach().numpy()
 
     xs = np.swapaxes(xs, 1, -1)
-    # xs = np.swapaxes(xs, 1, 2)
+    xs = np.swapaxes(xs, 1, 2)
 
     pics = xs
 
@@ -285,6 +275,17 @@ def visualize(model_dir,
 
       return zs, zs_params
 
+    def _decoder(latent_vectors):
+      latent_vectors = torch.from_numpy(latent_vectors).to(0)
+      latent_vectors = latent_vectors.type(dtype=torch.float32)
+      xs, _ = model.decode(latent_vectors)
+      xs = xs.cpu().detach().numpy()
+      xs = np.swapaxes(xs, 1, -1)
+      xs = np.swapaxes(xs, 1, 2)
+
+      return xs
+
+    num_pics = 10
     real_pics = dataset.sample_observations(num_pics, random_state)
     pics = torch.from_numpy(real_pics).to(0)
     zs, zs_params = _encoder(pics)
@@ -316,6 +317,57 @@ def visualize(model_dir,
         images.append(_decoder(code))
       filename = os.path.join(results_dir, "std_gaussian_cycle%d.gif" % i)
       visualize_util.save_animation(np.array(images), filename, fps)
+
+    # Cycle through quantiles of a fitted Gaussian.
+    for i, base_code in enumerate(means[:num_animations]):
+      images = []
+      for j in range(base_code.shape[0]):
+        code = np.repeat(np.expand_dims(base_code, 0), num_frames, axis=0)
+        loc = np.mean(means[:, j])
+        total_variance = np.mean(np.exp(logvars[:, j])) + np.var(means[:, j])
+        code[:, j] = visualize_util.cycle_gaussian(
+            base_code[j], num_frames, loc=loc, scale=np.sqrt(total_variance))
+        images.append(_decoder(code))
+      filename = os.path.join(results_dir, "fitted_gaussian_cycle%d.gif" % i)
+      visualize_util.save_animation(np.array(images), filename, fps)
+
+    # Cycle through [-2, 2] interval.
+    for i, base_code in enumerate(means[:num_animations]):
+      images = []
+      for j in range(base_code.shape[0]):
+        code = np.repeat(np.expand_dims(base_code, 0), num_frames, axis=0)
+        code[:, j] = visualize_util.cycle_interval(base_code[j], num_frames,
+                                                   -2., 2.)
+        images.append(_decoder(code))
+      filename = os.path.join(results_dir, "fixed_interval_cycle%d.gif" % i)
+      visualize_util.save_animation(np.array(images), filename, fps)
+
+    # Cycle linearly through +-2 std dev of a fitted Gaussian.
+    for i, base_code in enumerate(means[:num_animations]):
+      images = []
+      for j in range(base_code.shape[0]):
+        code = np.repeat(np.expand_dims(base_code, 0), num_frames, axis=0)
+        loc = np.mean(means[:, j])
+        total_variance = np.mean(np.exp(logvars[:, j])) + np.var(means[:, j])
+        scale = np.sqrt(total_variance)
+        code[:, j] = visualize_util.cycle_interval(base_code[j], num_frames,
+                                                   loc-2.*scale, loc+2.*scale)
+        images.append(_decoder(code))
+      filename = os.path.join(results_dir, "conf_interval_cycle%d.gif" % i)
+      visualize_util.save_animation(np.array(images), filename, fps)
+
+    # Cycle linearly through minmax of a fitted Gaussian.
+    for i, base_code in enumerate(means[:num_animations]):
+      images = []
+      for j in range(base_code.shape[0]):
+        code = np.repeat(np.expand_dims(base_code, 0), num_frames, axis=0)
+        code[:, j] = visualize_util.cycle_interval(base_code[j], num_frames,
+                                                   np.min(means[:, j]),
+                                                   np.max(means[:, j]))
+        images.append(_decoder(code))
+      filename = os.path.join(results_dir, "minmax_interval_cycle%d.gif" % i)
+      visualize_util.save_animation(np.array(images), filename, fps)
+
 
   # Finally, we clear the gin config that we have set.
   gin.clear_config()

@@ -96,6 +96,8 @@ def main(unused_argv):
     logging.info("Skipped training...")
     model_dir = FLAGS.model_dir
 
+  # reconstruct_img(image), encode -> zs die samples, decode mit [10,2]
+
   # We visualize reconstructions, samples and latent space traversals.
   #TODO: implement me !!!
   # visualize_dir = os.path.join(output_directory, "visualizations")

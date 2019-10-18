@@ -56,7 +56,8 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------------------
     # By default, we save all the results in subdirectories of the following path.
     # base_path = '/home/disentanglement/Python/disentanglement_lib/examples/example_output/pbt_vae/'
-    base_path = '/home/disentanglement/Python/disentanglement_lib/examples/models/50/'
+    # base_path = '/home/disentanglement/Python/disentanglement_lib/examples/models/50/'
+    base_path = '/home/disentanglement/Python/disentanglement_lib/examples/models/multi/'
     model_path = os.path.join(base_path, "model")
 
     # By default, we do not overwrite output directories. Set this to True, if you

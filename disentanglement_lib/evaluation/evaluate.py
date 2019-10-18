@@ -123,6 +123,7 @@ def evaluate(model_dir,
   if(pytorch):
     import sys
     import torch
+    #FIXME: make path nicer
     sys.path.append("../../../beta-tcvae/")
     from vae_quant import VAE
     # Path to TFHub module of previously trained representation.
