@@ -25,14 +25,15 @@ import gin.tf
 
 
 @gin.configurable(
-    "mig",
+    "nmig",
     blacklist=["ground_truth_data", "representation_function", "random_state"])
-def compute_mig(ground_truth_data,
+def compute_nmig(ground_truth_data,
                 representation_function,
                 random_state,
                 num_train=gin.REQUIRED,
-                batch_size=16): #FIXME: somehow solve batch size issue
-  """Computes the mutual information gap.
+                batch_size=16,
+                active=None):
+  """Computes the normal mutual information gap.
 
   Args:
     ground_truth_data: GroundTruthData to be sampled from.
@@ -45,26 +46,53 @@ def compute_mig(ground_truth_data,
   Returns:
     Dict with average mutual information gap.
   """
+  # allow partial mig so far only for dsprites
   logging.info("Generating training set.")
   mus_train, ys_train = utils.generate_batch_factor_code(
       ground_truth_data, representation_function, num_train,
       random_state, batch_size)
   assert mus_train.shape[1] == num_train
-  return _compute_mig(mus_train, ys_train)
+  return _compute_nmig(mus_train, ys_train, active)
 
 
-def _compute_mig(mus_train, ys_train):
+def _compute_nmig(mus_train, ys_train, active):
   """Computes score based on both training and testing codes and factors."""
   score_dict = {}
   discretized_mus = utils.make_discretizer(mus_train)
   m = utils.discrete_mutual_info(discretized_mus, ys_train)
   assert m.shape[0] == mus_train.shape[0]
   assert m.shape[1] == ys_train.shape[0]
-  # m is [num_latents, num_factors]
   entropy = utils.discrete_entropy(ys_train)
+  if active is not None:
+    assert len(active) <= ys_train.shape[0]
+    m = m[:, active]
+    entropy = entropy[active]
+  nr_lt = m.shape[0]
+  nr_gt = m.shape[1]
+  # m is [num_latents, num_factors]
+
   sorted_m = np.sort(m, axis=0)[::-1]
-  score_dict["discrete_mig"] = np.mean(
-      np.divide(sorted_m[0, :] - sorted_m[1, :], entropy[:]))
+  individual_mig = np.divide(sorted_m[0, :] - sorted_m[1, :], entropy[:])
+  print("ind mig", individual_mig)
+  mig = np.mean(individual_mig)
+
+  if nr_gt == 1:
+    nmig = np.max(np.divide(m, entropy[:]))
+  else:
+    m = np.divide(m, entropy[:])
+    partials = np.zeros((nr_gt))
+    best_ids = np.argmax(m, axis=0)
+    for i in range(nr_gt):
+      mask = np.ones((nr_gt), dtype=np.bool)
+      mask[i] = 0
+      best_id = best_ids[i]
+      partials[i] = m[best_id, i] - np.max(m[best_id, mask])
+    nmig = np.mean(partials)
+    print("ind nmig", partials)
+  score_dict["discrete_mig"] = mig
+  score_dict["discrete_nmig"] = nmig
+
+
   return score_dict
 
 

@@ -42,7 +42,8 @@ from vae_quant import UDRVAE
 def train_with_gin(model_dir,
                    overwrite=False,
                    gin_config_files=None,
-                   gin_bindings=None):
+                   gin_bindings=None,
+                   pytorch=True):
   """Trains a model based on the provided gin configuration.
 
   This function will set the provided gin bindings, call the train() function
@@ -59,7 +60,10 @@ def train_with_gin(model_dir,
   if gin_bindings is None:
     gin_bindings = []
   gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
-  train(model_dir, overwrite)
+  if(pytorch):
+    pbt_with_gin(model_dir,overwrite)
+  else:
+    train(model_dir, overwrite)
   gin.clear_config()
 
 def pbt_with_gin(model_dir,
@@ -192,15 +196,23 @@ def pbt(model_dir, overwrite=False, random_seed=gin.REQUIRED):
     dataset_iterator = named_data.get_named_ground_truth_data()
     # Set up time to keep track of elapsed time in results.
     experiment_timer = time.time()
-    id, udr_score, mig = pbt_main(model_dir=model_dir, dataset=dataset_iterator, random_seed=random_seed)
+    #id, udr_score, mig = pbt_main(model_dir=model_dir, dataset=dataset_iterator, random_seed=random_seed)
+    id, pbt_score_dict = pbt_main(model_dir=model_dir, dataset=dataset_iterator, random_seed=random_seed)
+
     print("dislib: finished pbt")
     output_shape = named_data.get_named_ground_truth_data().observation_shape
     module_export_path = os.path.join(model_dir, "tfhub")
-    copyfile(os.path.join(model_dir, "checkpoints/task-{:03d}.pth".format(id)),
+    os.makedirs(module_export_path, exist_ok=True)
+
+    copyfile(os.path.join(model_dir, "bestmodels", "model.pth".format(id)),
              os.path.join(module_export_path, "model.pth"))
 
-    results_dict = {"reconstruction_loss": None, "elbo": None, "regularizer": None, "kl_loss": None} # TODO generate those values, right now we use what we have
-    results_dict = {"udr_score": udr_score, "mig": mig} # TODO these values are not computed on the same data split, recompute?
+    results_dict = pbt_score_dict
+    #results_dict.add
+
+
+    #results_dict = {"reconstruction_loss": None, "elbo": None, "regularizer": None, "kl_loss": None} # TODO generate those values, right now we use what we have
+    #results_dict = {"score": udr_score, "mig": mig} # TODO these values are not computed on the same data split, recompute?
     results_dir = os.path.join(model_dir, "results")
     results.update_result_directory(results_dir, "train", results_dict)
 

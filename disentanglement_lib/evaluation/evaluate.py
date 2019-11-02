@@ -41,7 +41,8 @@ def evaluate_with_gin(model_dir,
                       output_dir,
                       overwrite=False,
                       gin_config_files=None,
-                      gin_bindings=None):
+                      gin_bindings=None,
+                      pytorch=True):
   """Evaluate a representation based on the provided gin configuration.
 
   This function will set the provided gin bindings, call the evaluate()
@@ -54,13 +55,14 @@ def evaluate_with_gin(model_dir,
     overwrite: Boolean indicating whether to overwrite output directory.
     gin_config_files: List of gin config files to load.
     gin_bindings: List of gin bindings to use.
+    pytorch: evaluation of pytorch model or standard.
   """
   if gin_config_files is None:
     gin_config_files = []
   if gin_bindings is None:
     gin_bindings = []
   gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
-  evaluate(model_dir, output_dir, overwrite)
+  evaluate(model_dir, output_dir, pytorch, overwrite)
   gin.clear_config()
 
 
@@ -68,6 +70,7 @@ def evaluate_with_gin(model_dir,
     "evaluation", blacklist=["model_dir", "output_dir", "overwrite"])
 def evaluate(model_dir,
              output_dir,
+             pytorch,
              overwrite=False,
              evaluation_fn=gin.REQUIRED,
              random_seed=gin.REQUIRED,
@@ -103,28 +106,64 @@ def evaluate(model_dir,
   # is present.
   if gin.query_parameter("dataset.name") == "auto":
     # Obtain the dataset name from the gin config of the previous step.
-    gin_config_file = os.path.join(model_dir, "results", "gin",
-                                   "postprocess.gin")
+
+    #edited for pytorch case
+    if(pytorch):
+      gin_config_file = os.path.join(model_dir, "results", "gin",
+                                     "train.gin")
+    else:
+      gin_config_file = os.path.join(model_dir, "results", "gin",
+                                     "postprocess.gin")
     gin_dict = results.gin_dict(gin_config_file)
     with gin.unlock_config():
       gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
           "'", ""))
   dataset = named_data.get_named_ground_truth_data()
 
-  # Path to TFHub module of previously trained representation.
-  module_path = os.path.join(model_dir, "tfhub")
-  with hub.eval_function_for_module(module_path) as f:
+  if(pytorch):
+    import sys
+    import torch
+    #FIXME: make path nicer
+    sys.path.append("../../../beta-tcvae/")
+    from vae_quant import VAE
+    # Path to TFHub module of previously trained representation.
+    module_path = os.path.join(model_dir, "tfhub")
+    #TODO: get these inputs from gin files
+    model = VAE(device=0)
+    #TODO: here maybe general case for >4 GPUs
+    checkpoint = torch.load(module_path + "/model.pth",
+                            map_location={'cuda:3': 'cuda:0', 'cuda:2': 'cuda:0', 'cuda:1': 'cuda:0'})
+    model.load_state_dict(checkpoint['model_state_dict'])
 
     def _representation_function(x):
       """Computes representation vector for input images."""
-      output = f(dict(images=x), signature="representation", as_dict=True)
-      return np.array(output["default"])
+      x = torch.from_numpy(x).to(0)
+      zs, zs_params = model.encode(x)
+
+      return zs_params[:, :, 0].cpu().detach().numpy()  # mean
+      # return zs.cpu().numpy()                # if we want a sample from the distribution
 
     # Computes scores of the representation based on the evaluation_fn.
     results_dict = evaluation_fn(
-        dataset,
-        _representation_function,
-        random_state=np.random.RandomState(random_seed))
+      dataset,
+      _representation_function,
+      random_state=np.random.RandomState(random_seed))
+
+  else:
+    # Path to TFHub module of previously trained representation.
+    module_path = os.path.join(model_dir, "tfhub")
+    with hub.eval_function_for_module(module_path) as f:
+
+      def _representation_function(x):
+        """Computes representation vector for input images."""
+        output = f(dict(images=x), signature="representation", as_dict=True)
+        return np.array(output["default"])
+
+      # Computes scores of the representation based on the evaluation_fn.
+      results_dict = evaluation_fn(
+          dataset,
+          _representation_function,
+          random_state=np.random.RandomState(random_seed))
 
   # Save the results (and all previous results in the pipeline) on disk.
   original_results_dir = os.path.join(model_dir, "results")
