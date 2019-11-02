@@ -60,7 +60,10 @@ if __name__ == "__main__":
     # By default, we save all the results in subdirectories of the following path.
     # base_path = '/home/disentanglement/Python/disentanglement_lib/examples/example_output/pbt_vae/'
     # base_path = '/home/disentanglement/Python/disentanglement_lib/examples/models/50/'
-    base_path = '/home/disentanglement/Python/disentanglement_lib/examples/models/full_test/'
+    # base_path = '/home/disentanglement/Python/disentanglement_lib/examples/models/full_test/'
+
+    base_path = '/home/disentanglement/Python/disentanglement_lib/examples/models/multi/'
+    model_path = os.path.join(base_path, "model")
 
     # By default, we do not overwrite output directories. Set this to True, if you
     # want to overwrite (in particular, if you rerun this script several times).
@@ -80,6 +83,19 @@ if __name__ == "__main__":
     # train.pbt_with_gin(model_path, overwrite, ["pbt_test_shapes.gin"])
 
     ### pbt step 3 --- score computation ###
+    #train.pbt_with_gin(model_path, overwrite, pbt_gin)
+
+    ### pbt step 2 ###
+
+    ### for now we skip postprocessing and directly evaluate the representation using the model itself
+    # representation_path = os.path.join(base_path, "representation")
+    # postprocess_gin = ["postprocess.gin"]  # This contains the settings.
+    # # postprocess.postprocess_with_gin defines the standard extraction protocol.
+    # postprocess.postprocess_with_gin(model_path, representation_path, overwrite,
+    #                                postprocess_gin)
+
+    ### pbt step 3 --- score computation ###
+
     # To compute the score, we again call the evaluation protocol with a gin
     # configuration. At this point, note that for all steps, we have to set a
     # random seed (in this case via `evaluation.random_seed`).
