@@ -101,8 +101,8 @@ def main(unused_argv):
 
   # We visualize reconstructions, samples and latent space traversals.
   #TODO: implement me !!!
-  # visualize_dir = os.path.join(output_directory, "visualizations")
-  # visualize_model.visualize(model_dir, visualize_dir, FLAGS.overwrite)
+  visualize_dir = os.path.join(output_directory, "visualizations")
+  visualize_model.visualize(model_dir, visualize_dir, FLAGS.overwrite, pytorch=True)
 
   # We fix the random seed for the postprocessing and evaluation steps (each
   # config gets a different but reproducible seed derived from a master seed of
@@ -138,6 +138,8 @@ def main(unused_argv):
     ]
     evaluate.evaluate_with_gin(model_dir, metric_dir, FLAGS.overwrite,
                                [gin_eval_config], eval_bindings, pytorch=True)
+
+
 
 
 if __name__ == "__main__":
