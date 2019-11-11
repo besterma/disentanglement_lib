@@ -40,8 +40,8 @@ sys.path.extend(['/home/disentanglement/Python/disentanglement_lib',
                  '/home/disentanglement/Python/beta-tcvae',
                  '/home/disentanglement/Python/PopulationBasedTraining'])
 
-# import os
-# os.environ["DISENTANGLEMENT_LIB_DATA"] = "/home/disentanglement/Python/disentanglement_lib/data/"
+import os
+os.environ["DISENTANGLEMENT_LIB_DATA"] = "/home/disentanglement/Python/disentanglement_lib/data/"
 
 from disentanglement_lib.evaluation import evaluate
 from disentanglement_lib.evaluation.metrics import utils
@@ -49,9 +49,12 @@ from disentanglement_lib.methods.unsupervised import train
 from disentanglement_lib.methods.unsupervised import vae
 from disentanglement_lib.postprocessing import postprocess
 from disentanglement_lib.utils import aggregate_results
-from disentanglement_lib.visualize.visualize_model import visualize
+from disentanglement_lib.visualize.visualize_model import visualize, visualize_with_gin
 import tensorflow as tf
 import gin.tf
+
+### test
+from disentanglement_lib.evaluation.metrics import nmig
 
 if __name__ == "__main__":
 
@@ -61,9 +64,11 @@ if __name__ == "__main__":
     # base_path = '/home/disentanglement/Python/disentanglement_lib/examples/example_output/pbt_vae/'
     # base_path = '/home/disentanglement/Python/disentanglement_lib/examples/models/50/'
     # base_path = '/home/disentanglement/Python/disentanglement_lib/examples/models/full_test/'
+    # base_path = '/home/disentanglement/Python/disentanglement_lib/examples/models/multi/'
 
-    base_path = '/home/disentanglement/Python/disentanglement_lib/examples/models/multi/'
-    model_path = os.path.join(base_path, "model")
+    # base_path = '/home/disentanglement/Python/disentanglement_lib/examples/models/new_test/'
+    base_path = '/home/disentanglement/Python/disentanglement_lib/examples/pbt_tests/test_shapes3d_supverised_5epochs/'
+
 
     # By default, we do not overwrite output directories. Set this to True, if you
     # want to overwrite (in particular, if you rerun this script several times).
@@ -75,15 +80,17 @@ if __name__ == "__main__":
     ### start trainign ##
     # training the pbt model
 
+    # os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
     #pbt_gin = ["pbt.gin"]
-    path_pbt = os.path.join(base_path, "pbt")
-    model_path = os.path.join(path_pbt, "model")
+
+    model_path = os.path.join(base_path, "model")
+
+    # path_pbt = os.path.join(base_path, "pbt")
+    # model_path = os.path.join(path_pbt, "model")
 
     #TODO: get shapes dataset from francesco
-    # train.pbt_with_gin(model_path, overwrite, ["pbt_test_shapes.gin"])
-
-    ### pbt step 3 --- score computation ###
-    #train.pbt_with_gin(model_path, overwrite, pbt_gin)
+    train.pbt_with_gin(model_path, overwrite, ["experimental_configs/pbt_vae.gin"])
 
     ### pbt step 2 ###
 
@@ -99,15 +106,39 @@ if __name__ == "__main__":
     # To compute the score, we again call the evaluation protocol with a gin
     # configuration. At this point, note that for all steps, we have to set a
     # random seed (in this case via `evaluation.random_seed`).
+    # gin_bindings = [
+    #     "evaluation.evaluation_fn = @mig",
+    #     "dataset.name='dsprites_full'",
+    #     # "dataset.name=cars3d",
+    #     "evaluation.random_seed = 0",
+    #     "mig.num_train=50000",
+    #     "mig.batch_size=10000",
+    #     "discretizer.discretizer_fn = @histogram_discretizer",
+    #     "discretizer.num_bins = 20",
+    #     "vae_quant.VAE.z_dim = 10",
+    #     "vae_quant.VAE.use_cuda = True",
+    #     "vae_quant.VAE.include_mutinfo = True",
+    #     "vae_quant.VAE.tcvae = True",
+    #     "vae_quant.VAE.conv = True",
+    #     "vae_quant.VAE.mss = False",
+    # ]
+
     gin_bindings = [
         "evaluation.evaluation_fn = @mig",
-        "dataset.name='dsprites_full'",
+        "dataset.name='shapes3d'",
         # "dataset.name=cars3d",
         "evaluation.random_seed = 0",
         "mig.num_train=50000",
         "mig.batch_size=10000",
         "discretizer.discretizer_fn = @histogram_discretizer",
-        "discretizer.num_bins = 20"
+        "discretizer.num_bins = 20",
+        "vae_quant.VAE.z_dim = 10",
+        "vae_quant.VAE.use_cuda = True",
+        "vae_quant.VAE.include_mutinfo = True",
+        "vae_quant.VAE.tcvae = True",
+        "vae_quant.VAE.conv = True",
+        "vae_quant.VAE.mss = False",
+        "vae_quant.VAE.num_channels = 3",
     ]
 
     # for now fix
@@ -125,9 +156,10 @@ if __name__ == "__main__":
     model_results = aggregate_results.load_aggregated_json_results(results_path)
     print(model_results)
 
-    # adding viz to example
+    # # adding viz to example
     viz_path = os.path.join(model_path, "viz")
-    visualize(model_path,
+    visualize_with_gin(model_path,
               viz_path,
               overwrite=True,
+              gin_bindings=gin_bindings,
               pytorch=True)

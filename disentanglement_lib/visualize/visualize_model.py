@@ -32,6 +32,21 @@ import tensorflow_hub as hub
 import gin.tf
 
 
+
+def visualize_with_gin(model_dir,
+                      output_dir,
+                      overwrite=False,
+                      gin_config_files=None,
+                      gin_bindings=None,
+                      pytorch=True):
+  if gin_config_files is None:
+    gin_config_files = []
+  if gin_bindings is None:
+    gin_bindings = []
+  gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
+  visualize(model_dir, output_dir, pytorch, overwrite)
+  gin.clear_config()
+
 def visualize(model_dir,
               output_dir,
               overwrite=False,
@@ -65,10 +80,26 @@ def visualize(model_dir,
   # gin config as this will lead to a valid gin config file where the data set
   # is present.
   # Obtain the dataset name from the gin config of the previous step.
-  gin_config_file = os.path.join(model_dir, "results", "gin", "train.gin")
+  # if gin.query_parameter("dataset.name") == "auto":
+    # Obtain the dataset name from the gin config of the previous step.
+
+    #edited for pytorch case
+  if(pytorch):
+    gin_config_file = os.path.join(model_dir, "results", "gin",
+                                   "train.gin")
+  else:
+    gin_config_file = os.path.join(model_dir, "results", "gin",
+                                   "postprocess.gin")
   gin_dict = results.gin_dict(gin_config_file)
-  gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
-      "'", ""))
+  with gin.unlock_config():
+    gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
+        "'", ""))
+  # dataset = named_data.get_named_ground_truth_data()
+
+  # gin_config_file = os.path.join(model_dir, "results", "gin", "train.gin")
+  # gin_dict = results.gin_dict(gin_config_file)
+  # gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
+  #     "'", ""))
 
 
 
@@ -216,7 +247,7 @@ def visualize(model_dir,
     import torch
     sys.path.append("../../../beta-tcvae/")
     from vae_quant import VAE
-    model = VAE(z_dim=10, use_cuda=True, tcvae=True, conv=True, device=0)
+    model = VAE(device=0)
     #TODO: here maybe general case for >4 GPUs
     checkpoint = torch.load(module_path + "/model.pth",
                             map_location={'cuda:3': 'cuda:0', 'cuda:2': 'cuda:0', 'cuda:1': 'cuda:0'})
