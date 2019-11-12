@@ -13,17 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Different studies that can be reproduced."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-from disentanglement_lib.config.tests import sweep as tests
-from disentanglement_lib.config.unsupervised_study_v1 import sweep as unsupervised_study_v1
-from disentanglement_lib.config.udr_study import sweep as udr_study
-
-STUDIES = {
-    "unsupervised_study_v1": unsupervised_study_v1.UnsupervisedStudyV1(),
-    "test": tests.TestStudy(),
-    "udr_study": udr_study.UdrStudy(),
-}
+evaluation.evaluation_fn = @unsupervised_metrics
+dataset.name="auto"
+evaluation.random_seed = 0
+unsupervised_metrics.num_train=10000
+discretizer.discretizer_fn = @histogram_discretizer
+discretizer.num_bins = 20

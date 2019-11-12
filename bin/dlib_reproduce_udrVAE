@@ -15,9 +15,18 @@
 # limitations under the License.
 
 """Pipeline to reproduce fixed models and evaluation protocols."""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import os
+os.environ["DISENTANGLEMENT_LIB_DATA"] = "/home/disentanglement/Python/disentanglement_lib/data/"
+import sys
+sys.path.extend(['/home/disentanglement/Python/disentanglement_lib',
+                 '/home/disentanglement/Python/beta-tcvae',
+                 '/home/disentanglement/Python/PopulationBasedTraining'])
+
 import os
 from absl import app
 from absl import flags
@@ -46,6 +55,7 @@ flags.DEFINE_boolean("only_print", False,
                      "Whether to only print the hyperparameter settings.")
 flags.DEFINE_boolean("overwrite", False,
                      "Whether to overwrite output directory.")
+
 
 
 def main(unused_argv):
@@ -81,17 +91,18 @@ def main(unused_argv):
 
   # Model training (if model directory is not provided).
   #TODO: implement here
+  model_bindings, model_config_file = study.get_model_config(FLAGS.model_num)
   if FLAGS.model_dir is None:
-    model_bindings, model_config_file = study.get_model_config(FLAGS.model_num)
-    # logging.info("Training model...")
-    # model_dir = os.path.join(output_directory, "model")
-    # model_bindings = [
-    #     "model.name = '{}'".format(os.path.basename(model_config_file)).replace(
-    #         ".gin", ""),
-    #     "model.model_num = {}".format(FLAGS.model_num),
-    # ] + model_bindings
-    # train.train_with_gin(model_dir, FLAGS.overwrite, [model_config_file],
-    #                      model_bindings)
+    # model_bindings, model_config_file = study.get_model_config(FLAGS.model_num)
+    logging.info("Training model...")
+    model_dir = os.path.join(output_directory, "model")
+    model_bindings = [
+        "model.name = '{}'".format(os.path.basename(model_config_file)).replace(
+            ".gin", ""),
+        "model.model_num = {}".format(FLAGS.model_num),
+    ] + model_bindings
+    train.train_with_gin(model_dir, FLAGS.overwrite, [model_config_file],
+                         model_bindings, pytorch=True)
   else:
     logging.info("Skipped training...")
     model_dir = FLAGS.model_dir
@@ -100,27 +111,16 @@ def main(unused_argv):
   # reconstruct_img(image), encode -> zs die samples, decode mit [10,2]
 
   # We visualize reconstructions, samples and latent space traversals.
-  #TODO: implement me !!!
   visualize_dir = os.path.join(output_directory, "visualizations")
-  visualize_model.visualize(model_dir, visualize_dir, FLAGS.overwrite, pytorch=True)
+  visualize_model.visualize_with_gin(model_dir, visualize_dir, FLAGS.overwrite,
+                                     gin_bindings=model_bindings,
+                                     gin_config_files=[model_config_file],
+                                     pytorch=True)
 
   # We fix the random seed for the postprocessing and evaluation steps (each
   # config gets a different but reproducible seed derived from a master seed of
   # 0). The model seed was set via the gin bindings and configs of the study.
   random_state = np.random.RandomState(0)
-
-  # We extract the different representations and save them to disk.
-  # postprocess_config_files = sorted(study.get_postprocess_config_files())
-  # for config in postprocess_config_files:
-  #   post_name = os.path.basename(config).replace(".gin", "")
-  #   logging.info("Extracting representation %s...", post_name)
-  #   post_dir = os.path.join(output_directory, "postprocessed", post_name)
-  #   postprocess_bindings = [
-  #       "postprocess.random_seed = {}".format(random_state.randint(2**32)),
-  #       "postprocess.name = '{}'".format(post_name)
-  #   ]
-  #   postprocess.postprocess_with_gin(model_dir, post_dir, FLAGS.overwrite,
-  #                                    [config], postprocess_bindings)
 
   # Iterate through the disentanglement metrics.
   eval_configs = sorted(study.get_eval_config_files())
@@ -129,7 +129,7 @@ def main(unused_argv):
   #TODO: for now only with mean scores!?!
   for gin_eval_config in eval_configs:
     metric_name = os.path.basename(gin_eval_config).replace(".gin", "")
-    logging.info("Computing metric '%s' on '%s'...", metric_name,)
+    logging.info("Computing metric '%s' on model...", metric_name)
     metric_dir = os.path.join(output_directory, "metrics",
                               metric_name)
     eval_bindings = [
@@ -137,9 +137,7 @@ def main(unused_argv):
         "evaluation.name = '{}'".format(metric_name)
     ]
     evaluate.evaluate_with_gin(model_dir, metric_dir, FLAGS.overwrite,
-                               [gin_eval_config], eval_bindings, pytorch=True)
-
-
+                               [model_config_file, gin_eval_config], model_bindings + eval_bindings, pytorch=True)
 
 
 if __name__ == "__main__":
