@@ -134,6 +134,7 @@ def evaluate(model_dir,
     checkpoint = torch.load(module_path + "/model.pth",
                             map_location={'cuda:3': 'cuda:0', 'cuda:2': 'cuda:0', 'cuda:1': 'cuda:0'})
     model.load_state_dict(checkpoint['model_state_dict'])
+    model.eval()
 
     def _representation_function(x):
       """Computes representation vector for input images."""
