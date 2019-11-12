@@ -39,7 +39,7 @@ from disentanglement_lib.visualize import visualize_model
 import numpy as np
 
 FLAGS = flags.FLAGS
-flags.DEFINE_string("study", "unsupervised_study_v1",
+flags.DEFINE_string("study", "pbt_studies",
                     "Name of the study.")
 flags.DEFINE_string("output_directory", None,
                     "Output directory of experiments ('{model_num}' will be"
