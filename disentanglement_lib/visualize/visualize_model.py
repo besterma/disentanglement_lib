@@ -253,15 +253,35 @@ def visualize(model_dir,
                             map_location={'cuda:3': 'cuda:0', 'cuda:2': 'cuda:0', 'cuda:1': 'cuda:0'})
     model.load_state_dict(checkpoint['model_state_dict'])
 
+    # Save latent traversals.
+
+    def _encoder(x):
+      x = np.moveaxis(x, 3,1)
+      x = torch.from_numpy(x).to(0)
+
+      zs, zs_params = model.encode(x)
+      zs = zs.cpu().detach().numpy()
+      zs_params = zs_params.cpu().detach().numpy()
+
+      return zs, zs_params
+
+    def _decoder(latent_vectors):
+      latent_vectors = torch.from_numpy(latent_vectors).to(0)
+      latent_vectors = latent_vectors.type(dtype=torch.float32)
+      xs, _ = model.decode(latent_vectors)
+      xs = xs.cpu().detach().numpy()
+      xs = np.moveaxis(xs, 1, 3)
+
+      return xs
+
     # Save reconstructions.
 
     # feed samples through pytorch model
+
     real_pics = dataset.sample_observations(num_pics, random_state)
     x = torch.from_numpy(real_pics).to(0)
-    xs, x_params, zs, z_params = model.reconstruct_img(x)
-    pics = xs.cpu().detach().numpy()
-    pics = np.swapaxes(pics, 1, -1)
-    pics = np.swapaxes(pics, 1, 2)
+    zs, zs_params = _encoder(real_pics)
+    pics = _decoder(zs_params[:,:,0])
 
     paired_pics = np.concatenate((real_pics, pics), axis=2)
     paired_pics = [paired_pics[i, :, :, :] for i in range(paired_pics.shape[0])]
@@ -279,16 +299,9 @@ def visualize(model_dir,
     # num_latent = int(gin_dict["encoder.num_latent"])
     num_latent = 10
     num_pics = 64
+
     random_codes = random_state.normal(0, 1, [num_pics, num_latent])
-    random_codes = torch.from_numpy(random_codes).to(0)
-    random_codes = random_codes.type(dtype=torch.float32)
-    xs, xs_params = model.decode(random_codes)
-    xs = xs.cpu().detach().numpy()
-    xs_params = xs_params.cpu().detach().numpy()
-
-    xs = np.swapaxes(xs, 1, -1)
-    xs = np.swapaxes(xs, 1, 2)
-
+    xs = _decoder(random_codes)
     pics = xs
 
     results_dir = os.path.join(output_dir, "sampled")
@@ -297,30 +310,12 @@ def visualize(model_dir,
     visualize_util.grid_save_images(pics,
                                     os.path.join(results_dir, "samples.jpg"))
 
-    # Save latent traversals.
 
-    def _encoder(pics):
-      zs, zs_params = model.encode(pics)
-      zs = zs.cpu().detach().numpy()
-      zs_params = zs_params.cpu().detach().numpy()
-
-      return zs, zs_params
-
-    def _decoder(latent_vectors):
-      latent_vectors = torch.from_numpy(latent_vectors).to(0)
-      latent_vectors = latent_vectors.type(dtype=torch.float32)
-      xs, _ = model.decode(latent_vectors)
-      xs = xs.cpu().detach().numpy()
-      xs = np.swapaxes(xs, 1, -1)
-      xs = np.swapaxes(xs, 1, 2)
-
-      return xs
 
     num_pics = 10
     real_pics = dataset.sample_observations(num_pics, random_state)
-    pics = torch.from_numpy(real_pics).to(0)
-    zs, zs_params = _encoder(pics)
-
+    # pics = torch.from_numpy(real_pics).to(0)
+    zs, zs_params = _encoder(real_pics)
 
     means = zs_params[:,:,0]
     logvars = zs_params[:,:,1]

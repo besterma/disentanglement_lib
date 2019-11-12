@@ -137,6 +137,9 @@ def evaluate(model_dir,
 
     def _representation_function(x):
       """Computes representation vector for input images."""
+
+      # change numpy array samples such that it is [batch, channels, x, y]
+      x = np.moveaxis(x, 3, 1)
       x = torch.from_numpy(x).to(0)
       zs, zs_params = model.encode(x)
 
