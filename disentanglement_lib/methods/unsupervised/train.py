@@ -38,6 +38,7 @@ sys.path.append(path.expanduser('~/Python/PopulationBasedTraining'))
 from main import pbt_main
 sys.path.append(path.expanduser('~/Python/beta-tcvae'))
 from vae_quant import UDRVAE
+#test
 
 def train_with_gin(model_dir,
                    overwrite=False,
@@ -59,9 +60,10 @@ def train_with_gin(model_dir,
     gin_config_files = []
   if gin_bindings is None:
     gin_bindings = []
+  gin.external_configurable(Adam, module='torch')
   gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
   if(pytorch):
-    pbt_with_gin(model_dir,overwrite)
+    pbt(model_dir,overwrite)
   else:
     train(model_dir, overwrite)
   gin.clear_config()
@@ -85,7 +87,7 @@ def pbt_with_gin(model_dir,
       gin_config_files = []
   if gin_bindings is None:
       gin_bindings = []
-  gin.external_configurable(Adam, module='torch')
+  # gin.external_configurable(Adam, module='torch')
   gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
   pbt(model_dir, overwrite)
   gin.clear_config()
@@ -186,6 +188,8 @@ def pbt(model_dir, overwrite=False, random_seed=gin.REQUIRED):
     dataset = util.torch_data_set_generator_from_ground_truth_data()
 
     """
+    output_shape = named_data.get_named_ground_truth_data()
+
     print("dislib: start pbt")
     if tf.gfile.IsDirectory(model_dir):
         if overwrite:
@@ -193,11 +197,10 @@ def pbt(model_dir, overwrite=False, random_seed=gin.REQUIRED):
         else:
             raise ValueError("Directory already exists and overwrite is False.")
     random_state = np.random.RandomState(random_seed)
-    dataset_iterator = named_data.get_named_ground_truth_data()
     # Set up time to keep track of elapsed time in results.
     experiment_timer = time.time()
     #id, udr_score, mig = pbt_main(model_dir=model_dir, dataset=dataset_iterator, random_seed=random_seed)
-    id, pbt_score_dict = pbt_main(model_dir=model_dir, dataset=dataset_iterator, random_seed=random_seed)
+    id, pbt_score_dict = pbt_main(model_dir=model_dir, random_seed=random_seed)
 
     print("dislib: finished pbt")
     output_shape = named_data.get_named_ground_truth_data().observation_shape
