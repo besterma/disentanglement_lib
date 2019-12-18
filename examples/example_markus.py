@@ -35,6 +35,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import os
+os.environ['DISENTANGLEMENT_LIB_DATA'] = "/home/disentanglement/Python/disentanglement_lib/data"
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 import sys
 sys.path.extend(['/home/disentanglement/Python/disentanglement_lib',
                  '/home/disentanglement/Python/beta-tcvae',
@@ -50,10 +52,14 @@ from disentanglement_lib.methods.unsupervised import vae
 from disentanglement_lib.postprocessing import postprocess
 from disentanglement_lib.utils import aggregate_results
 from disentanglement_lib.visualize.visualize_model import visualize
+from disentanglement_lib.visualize import visualize_model
+
 import tensorflow as tf
 import gin.tf
 
 if __name__ == "__main__":
+
+    """
 
     # 0. Settings
     # ------------------------------------------------------------------------------
@@ -127,6 +133,9 @@ if __name__ == "__main__":
 
     # adding viz to example
     viz_path = os.path.join(model_path, "viz")
+    """
+    viz_path = '/home/disentanglement/Python/beta-tcvae/exported_images'
+    model_path = '/home/disentanglement/Python/disentanglement_lib/test_reproduce_supervised/model'
     visualize(model_path,
               viz_path,
               overwrite=True,

@@ -1,5 +1,5 @@
 start_epoch = 0
-max_epoch = 1
+max_epoch = 5
 hyper_parameters = ['lr', 'batch_size', 'beta']
 random_seed = 35
 
@@ -36,6 +36,9 @@ vae_trainer.VaeTrainer.beta_init_function = @get_init_beta
 vae_trainer.VaeTrainer.lr_init_function = @get_init_lr
 vae_trainer.VaeTrainer.eval_combine_function = @utils.mig_nmig_combination
 vae_trainer.VaeTrainer.eval_function = @nmig
+
+dci.num_train = 10000
+dci.num_test = 5000
 
 nmig.num_train = 2000
 nmig.batch_size = 1000
