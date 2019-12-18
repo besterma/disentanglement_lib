@@ -283,7 +283,6 @@ def visualize(model_dir,
       xs_params = np.moveaxis(xs_params, 1, 3)
 
       return xs_params
-
     # Save reconstructions.
 
     # feed samples through pytorch model

@@ -1,5 +1,5 @@
 start_epoch = 0
-max_epoch = 5
+max_epoch = 10
 hyper_parameters = ['lr', 'batch_size', 'beta']
 random_seed = 35
 
@@ -42,7 +42,7 @@ dci.num_test = 5000
 
 nmig.num_train = 2000
 nmig.batch_size = 1000
-nmig.active=None
+nmig.active = None
 discretizer.discretizer_fn = @histogram_discretizer
 discretizer.num_bins = 20
 
