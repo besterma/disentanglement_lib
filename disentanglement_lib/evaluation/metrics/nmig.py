@@ -57,9 +57,11 @@ def compute_nmig(ground_truth_data,
 
 def _compute_nmig(mus_train, ys_train, active):
   """Computes score based on both training and testing codes and factors."""
+  print("start nmig")
   score_dict = {}
   discretized_mus = utils.make_discretizer(mus_train)
   m = utils.discrete_mutual_info(discretized_mus, ys_train)
+  print("finished discretizing")
   assert m.shape[0] == mus_train.shape[0]
   assert m.shape[1] == ys_train.shape[0]
   entropy = utils.discrete_entropy(ys_train)

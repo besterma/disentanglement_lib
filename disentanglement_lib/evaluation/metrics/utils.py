@@ -42,6 +42,7 @@ def generate_batch_factor_code(ground_truth_data, representation_function,
     representations: Codes (num_codes, num_points)-np array.
     factors: Factors generating the codes (num_factors, num_points)-np array.
   """
+  #
   representations = None
   factors = None
   i = 0

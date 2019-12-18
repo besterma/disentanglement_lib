@@ -32,6 +32,21 @@ import tensorflow_hub as hub
 import gin.tf
 
 
+
+def visualize_with_gin(model_dir,
+                      output_dir,
+                      overwrite=False,
+                      gin_config_files=None,
+                      gin_bindings=None,
+                      pytorch=True):
+  if gin_config_files is None:
+    gin_config_files = []
+  if gin_bindings is None:
+    gin_bindings = []
+  gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
+  visualize(model_dir, output_dir, pytorch, overwrite)
+  gin.clear_config()
+
 def visualize(model_dir,
               output_dir,
               overwrite=False,
@@ -65,10 +80,35 @@ def visualize(model_dir,
   # gin config as this will lead to a valid gin config file where the data set
   # is present.
   # Obtain the dataset name from the gin config of the previous step.
-  gin_config_file = os.path.join(model_dir, "results", "gin", "train.gin")
+  # if gin.query_parameter("dataset.name") == "auto":
+    # Obtain the dataset name from the gin config of the previous step.
+
+    #edited for pytorch case
+  if(pytorch):
+    gin_config_file = os.path.join(model_dir, "results", "gin",
+                                   "train.gin")
+  else:
+    gin_config_file = os.path.join(model_dir, "results", "gin",
+                                   "postprocess.gin")
   gin_dict = results.gin_dict(gin_config_file)
-  gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
-      "'", ""))
+  with gin.unlock_config():
+    gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
+        "'", ""))
+    gin.bind_parameter("VAE.conv", bool(gin_dict["VAE.conv"].replace(
+      "'", "")))
+    gin.bind_parameter("VAE.num_channels", int(gin_dict["VAE.num_channels"].replace(
+      "'", "")))
+    gin.bind_parameter("VAE.use_cuda", bool(gin_dict["VAE.use_cuda"].replace(
+      "'", "")))
+    gin.bind_parameter("VAE.z_dim", int(gin_dict["VAE.z_dim"].replace(
+      "'", "")))
+
+  # dataset = named_data.get_named_ground_truth_data()
+
+  # gin_config_file = os.path.join(model_dir, "results", "gin", "train.gin")
+  # gin_dict = results.gin_dict(gin_config_file)
+  # gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
+  #     "'", ""))
 
 
 
@@ -216,21 +256,42 @@ def visualize(model_dir,
     import torch
     sys.path.append("../../../beta-tcvae/")
     from vae_quant import VAE
-    model = VAE(z_dim=10, use_cuda=True, tcvae=True, conv=True, device=0)
+    model = VAE(device=0)
     #TODO: here maybe general case for >4 GPUs
     checkpoint = torch.load(module_path + "/model.pth",
                             map_location={'cuda:3': 'cuda:0', 'cuda:2': 'cuda:0', 'cuda:1': 'cuda:0'})
     model.load_state_dict(checkpoint['model_state_dict'])
+    model.eval()
+
+    # Save latent traversals.
+
+    def _encoder(x):
+      x = np.moveaxis(x, 3,1)
+      x = torch.from_numpy(x).to(0)
+
+      zs, zs_params = model.encode(x)
+      zs = zs.cpu().detach().numpy()
+      zs_params = zs_params.cpu().detach().numpy()
+
+      return zs, zs_params
+
+    def _decoder(latent_vectors):
+      latent_vectors = torch.from_numpy(latent_vectors).to(0)
+      latent_vectors = latent_vectors.type(dtype=torch.float32)
+      xs, xs_params = model.decode(latent_vectors)
+      xs_params = xs_params.sigmoid().cpu().detach().numpy()
+      xs_params = np.moveaxis(xs_params, 1, 3)
+
+      return xs_params
 
     # Save reconstructions.
 
     # feed samples through pytorch model
+
     real_pics = dataset.sample_observations(num_pics, random_state)
     x = torch.from_numpy(real_pics).to(0)
-    xs, x_params, zs, z_params = model.reconstruct_img(x)
-    pics = xs.cpu().detach().numpy()
-    pics = np.swapaxes(pics, 1, -1)
-    pics = np.swapaxes(pics, 1, 2)
+    zs, zs_params = _encoder(real_pics)
+    pics = _decoder(zs_params[:,:,0])
 
     paired_pics = np.concatenate((real_pics, pics), axis=2)
     paired_pics = [paired_pics[i, :, :, :] for i in range(paired_pics.shape[0])]
@@ -248,16 +309,9 @@ def visualize(model_dir,
     # num_latent = int(gin_dict["encoder.num_latent"])
     num_latent = 10
     num_pics = 64
+
     random_codes = random_state.normal(0, 1, [num_pics, num_latent])
-    random_codes = torch.from_numpy(random_codes).to(0)
-    random_codes = random_codes.type(dtype=torch.float32)
-    xs, xs_params = model.decode(random_codes)
-    xs = xs.cpu().detach().numpy()
-    xs_params = xs_params.cpu().detach().numpy()
-
-    xs = np.swapaxes(xs, 1, -1)
-    xs = np.swapaxes(xs, 1, 2)
-
+    xs = _decoder(random_codes)
     pics = xs
 
     results_dir = os.path.join(output_dir, "sampled")
@@ -266,30 +320,12 @@ def visualize(model_dir,
     visualize_util.grid_save_images(pics,
                                     os.path.join(results_dir, "samples.jpg"))
 
-    # Save latent traversals.
 
-    def _encoder(pics):
-      zs, zs_params = model.encode(pics)
-      zs = zs.cpu().detach().numpy()
-      zs_params = zs_params.cpu().detach().numpy()
-
-      return zs, zs_params
-
-    def _decoder(latent_vectors):
-      latent_vectors = torch.from_numpy(latent_vectors).to(0)
-      latent_vectors = latent_vectors.type(dtype=torch.float32)
-      xs, _ = model.decode(latent_vectors)
-      xs = xs.cpu().detach().numpy()
-      xs = np.swapaxes(xs, 1, -1)
-      xs = np.swapaxes(xs, 1, 2)
-
-      return xs
 
     num_pics = 10
     real_pics = dataset.sample_observations(num_pics, random_state)
-    pics = torch.from_numpy(real_pics).to(0)
-    zs, zs_params = _encoder(pics)
-
+    # pics = torch.from_numpy(real_pics).to(0)
+    zs, zs_params = _encoder(real_pics)
 
     means = zs_params[:,:,0]
     logvars = zs_params[:,:,1]
@@ -315,7 +351,7 @@ def visualize(model_dir,
         code = np.repeat(np.expand_dims(base_code, 0), num_frames, axis=0)
         code[:, j] = visualize_util.cycle_gaussian(base_code[j], num_frames)
         images.append(_decoder(code))
-      filename = os.path.join(results_dir, "std_gaussian_cycle%d.gif" % i)
+      filename = os.path.join(results_dir, " %d.gif" % i)
       visualize_util.save_animation(np.array(images), filename, fps)
 
     # Cycle through quantiles of a fitted Gaussian.
