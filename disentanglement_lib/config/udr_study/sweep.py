@@ -64,7 +64,7 @@ def get_num_latent(sweep):
 
 def get_seeds(num):
   """Returns random seeds."""
-  return h.sweep("model.random_seed", h.categorical(list(range(num))))
+  return h.sweep("random_seed", h.categorical(list(range(num))))
 
 
 def get_default_models():

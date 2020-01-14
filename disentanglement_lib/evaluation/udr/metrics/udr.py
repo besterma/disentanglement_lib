@@ -242,7 +242,10 @@ def compute_udr_sklearn(ground_truth_data,
       corr_matrix_all[i, j, :, :] = corr_matrix
       if filter_low_kl:
         corr_matrix = corr_matrix[kl_mask[i], ...][..., kl_mask[j]]
-      disentanglement[i, j] = relative_strength_disentanglement(corr_matrix)
+      if not (kl_mask[i].any() and kl_mask[j].any()):
+        disentanglement[i, j] = 0
+      else:
+        disentanglement[i, j] = relative_strength_disentanglement(corr_matrix)
 
   scores_dict = {}
   if include_raw_correlations:

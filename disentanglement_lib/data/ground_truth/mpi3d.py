@@ -116,4 +116,4 @@ class MPI3D(ground_truth_data.GroundTruthData):
   def sample_observations_from_factors(self, factors, random_state):
     all_factors = self.state_space.sample_all_factors(factors, random_state)
     indices = np.array(np.dot(all_factors, self.factor_bases), dtype=np.int64)
-    return self.images[indices] / 255.
+    return self.images[indices].astype(np.float32) / 255.
