@@ -31,6 +31,8 @@ import scipy
 from sklearn import linear_model
 from sklearn import preprocessing
 import gin.tf
+from torch.utils.data import DataLoader
+
 
 
 def relative_strength_disentanglement(corr_matrix):
@@ -157,6 +159,59 @@ def _generate_representation_dataset(ground_truth_data,
           representation_batch[j][0])
   return representation_points, [np.mean(kl, axis=0) for kl in kl_divergence]
 
+def _generate_representation_dataset_pytorch(dataset,
+                                             representation_functions, batch_size,
+                                             num_data_points, random_state):
+  """Sample dataset of represetations for all of the different pytorch models.
+
+  Args:
+    dataset: numpy dataset with shape (
+    representation_functions: functions that takes observations as input and
+      outputs a dim_representation sized representation for each observation and
+      a vector of the average kl divergence per latent.
+    batch_size: size of batches of representations to be collected at one time.
+    num_data_points: total number of points to be sampled for training set.
+    random_state: numpy random state used for randomness.
+
+  Returns:
+    representation_points: (num_data_points, dim_representation)-sized numpy
+      array with training set features.
+    kl: (dim_representation) - The average KL divergence per latent in the
+      representation.
+  """
+  if num_data_points % batch_size != 0:
+    raise ValueError("num_data_points must be a multiple of batch_size")
+
+  random_state.shuffle(dataset)
+
+  train_loader = DataLoader(dataset=dataset,
+                            batch_size=batch_size,
+                            shuffle=False,
+                            num_workers=0,
+                            pin_memory=True)
+
+  representation_points = []
+  kl_divergence = []
+
+  for i, sample in enumerate(train_loader):
+    if i >= num_data_points // batch_size:
+      break
+
+    representation_batch = [rep_func(sample) for rep_func in representation_functions]
+
+    for j in range(len(representation_functions)):
+      # Initialize the outputs if it hasn't been created yet.
+      if len(representation_points) <= j:
+        kl_divergence.append(
+          np.zeros((int(num_data_points / batch_size),
+                    representation_batch[j][1].shape[0])))
+        representation_points.append(
+          np.zeros((num_data_points, representation_batch[j][0].shape[1])))
+      kl_divergence[j][i, :] = representation_batch[j][1]
+      representation_points[j][i * batch_size:(i + 1) * batch_size, :] = (
+        representation_batch[j][0])
+  return representation_points, [np.mean(kl, axis=0) for kl in kl_divergence]
+
 
 @gin.configurable(
     "udr_sklearn",
@@ -169,7 +224,8 @@ def compute_udr_sklearn(ground_truth_data,
                         correlation_matrix="lasso",
                         filter_low_kl=True,
                         include_raw_correlations=True,
-                        kl_filter_threshold=0.01):
+                        kl_filter_threshold=0.01,
+                        pytorch=False):
   """Computes the UDR score using scikit-learn.
 
   Args:
@@ -204,9 +260,16 @@ def compute_udr_sklearn(ground_truth_data,
         to the median of the pairwise disentanglement scores for each model.
   """
   logging.info("Generating training set.")
-  inferred_model_reps, kl = _generate_representation_dataset(
-      ground_truth_data, representation_functions, batch_size, num_data_points,
-      random_state)
+  if pytorch:
+    inferred_model_reps, kl = _generate_representation_dataset_pytorch(ground_truth_data,
+                                                                       representation_functions,
+                                                                       batch_size,
+                                                                       num_data_points,
+                                                                       random_state)
+  else:
+    inferred_model_reps, kl = _generate_representation_dataset(
+        ground_truth_data, representation_functions, batch_size, num_data_points,
+        random_state)
 
   num_models = len(inferred_model_reps)
   logging.info("Number of Models: %s", num_models)
