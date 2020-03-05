@@ -182,6 +182,7 @@ def _generate_representation_dataset_pytorch(dataset,
   if num_data_points % batch_size != 0:
     raise ValueError("num_data_points must be a multiple of batch_size")
 
+  dataset = dataset.copy()
   random_state.shuffle(dataset)
 
   train_loader = DataLoader(dataset=dataset,
