@@ -85,8 +85,8 @@ def generate_batch_factor_code_pytorch(data, labels, representation_function,
 
     while i < num_points:
         num_points_iter = min(num_points - i, batch_size)
-        current_factors = labels[indices[i*batch_size:i*batch_size + num_points_iter]]
-        current_observations = data[indices[i*batch_size:i*batch_size + num_points_iter]]
+        current_factors = labels[indices[i:i + num_points_iter]]
+        current_observations = data[indices[i:i + num_points_iter]]
         if i == 0:
             factors = current_factors
             representations = representation_function(current_observations)

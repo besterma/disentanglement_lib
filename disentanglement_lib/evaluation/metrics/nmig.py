@@ -26,7 +26,7 @@ import gin.tf
 
 @gin.configurable(
     "nmig",
-    blacklist=["ground_truth_data", "representation_function", "random_state"])
+    blacklist=["ground_truth_data", "labels", "representation_function", "random_state"])
 def compute_nmig(ground_truth_data,
                  representation_function,
                  random_state,
