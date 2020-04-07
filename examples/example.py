@@ -46,7 +46,7 @@ from disentanglement_lib.methods.unsupervised import train
 from disentanglement_lib.methods.unsupervised import vae
 from disentanglement_lib.postprocessing import postprocess
 from disentanglement_lib.utils import aggregate_results
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import gin.tf
 
 if __name__ == "__main__":

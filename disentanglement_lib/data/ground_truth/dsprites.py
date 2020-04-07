@@ -23,7 +23,7 @@ from disentanglement_lib.data.ground_truth import util
 import numpy as np
 import PIL
 from six.moves import range
-from tensorflow import gfile
+from tensorflow.compat.v1 import gfile
 
 
 DSPRITES_PATH = os.path.join(

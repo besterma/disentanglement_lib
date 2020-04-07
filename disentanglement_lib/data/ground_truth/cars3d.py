@@ -25,7 +25,7 @@ import PIL
 import scipy.io as sio
 from six.moves import range
 from sklearn.utils.extmath import cartesian
-from tensorflow import gfile
+from tensorflow.compat.v1 import gfile
 
 
 CARS3D_PATH = os.path.join(

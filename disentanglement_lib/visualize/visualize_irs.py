@@ -22,7 +22,7 @@ import os
 from disentanglement_lib.evaluation.metrics.irs import scalable_disentanglement_score
 import matplotlib.pyplot as plt  # pylint: disable=g-import-not-at-top
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def vis_all_interventional_effects(gen_factors, latents, output_dir):

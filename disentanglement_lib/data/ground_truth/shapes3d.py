@@ -22,7 +22,7 @@ from disentanglement_lib.data.ground_truth import ground_truth_data
 from disentanglement_lib.data.ground_truth import util
 import numpy as np
 from six.moves import range
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import h5py
 
 

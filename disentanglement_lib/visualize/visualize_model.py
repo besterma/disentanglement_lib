@@ -26,8 +26,8 @@ from disentanglement_lib.visualize.visualize_irs import vis_all_interventional_e
 import numpy as np
 from scipy import stats
 from six.moves import range
-import tensorflow as tf
-from tensorflow import gfile
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import gfile
 import tensorflow_hub as hub
 import gin.tf
 
@@ -254,8 +254,7 @@ def visualize(model_dir,
   else:
     import sys
     import torch
-    sys.path.append("../../../beta-tcvae/")
-    from vae_quant import VAE
+    from beta_tcvae.vae_quant import VAE
     model = VAE(device=0)
     #TODO: here maybe general case for >4 GPUs
     checkpoint = torch.load(module_path + "/model.pth",

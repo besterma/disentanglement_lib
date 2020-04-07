@@ -25,7 +25,7 @@ from disentanglement_lib.methods.unsupervised import gaussian_encoder_model
 from disentanglement_lib.methods.unsupervised import vae  # pylint: disable=unused-import
 from disentanglement_lib.utils import results
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import gin.tf.external_configurables  # pylint: disable=unused-import
 import gin.tf
 import sys
@@ -35,9 +35,9 @@ from torch.optim import Adam
 from os import path
 
 sys.path.append(path.expanduser('~/Python/PopulationBasedTraining'))
-from main import pbt_main
+from pbt4vae.main import pbt_main
 sys.path.append(path.expanduser('~/Python/beta-tcvae'))
-from vae_quant import UDRVAE
+from beta_tcvae.vae_quant import UDRVAE
 #test
 
 def train_with_gin(model_dir,

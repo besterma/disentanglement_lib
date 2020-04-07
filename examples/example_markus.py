@@ -54,7 +54,7 @@ from disentanglement_lib.utils import aggregate_results
 from disentanglement_lib.visualize import visualize_model
 
 from disentanglement_lib.visualize.visualize_model import visualize, visualize_with_gin
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import gin.tf
 
 ### test

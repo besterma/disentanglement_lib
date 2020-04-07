@@ -32,7 +32,7 @@ from disentanglement_lib.evaluation.metrics import sap_score  # pylint: disable=
 from disentanglement_lib.evaluation.metrics import unsupervised_metrics  # pylint: disable=unused-import
 from disentanglement_lib.utils import results
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import tensorflow_hub as hub
 import gin.tf
 
@@ -123,9 +123,7 @@ def evaluate(model_dir,
   if(pytorch):
     import sys
     import torch
-    #FIXME: make path nicer
-    sys.path.append("../../../beta-tcvae/")
-    from vae_quant import VAE
+    from beta_tcvae.vae_quant import VAE
     # Path to TFHub module of previously trained representation.
     module_path = os.path.join(model_dir, "tfhub")
     #TODO: get these inputs from gin files

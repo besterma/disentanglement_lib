@@ -28,7 +28,7 @@ from disentanglement_lib.methods.shared import optimizers  # pylint: disable=unu
 from disentanglement_lib.methods.unsupervised import gaussian_encoder_model
 from six.moves import range
 from six.moves import zip
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import gin.tf
 
 

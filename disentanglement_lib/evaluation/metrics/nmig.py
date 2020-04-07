@@ -28,15 +28,16 @@ import gin.tf
     "nmig",
     blacklist=["ground_truth_data", "representation_function", "random_state"])
 def compute_nmig(ground_truth_data,
-                representation_function,
-                random_state,
-                num_train=gin.REQUIRED,
-                batch_size=16,
-                active=None):
-  """Computes the normal mutual information gap.
+                 representation_function,
+                 random_state,
+                 labels=None,
+                 num_train=gin.REQUIRED,
+                 batch_size=16,
+                 active=None):
+    """Computes the normal mutual information gap.
 
   Args:
-    ground_truth_data: GroundTruthData to be sampled from.
+    ground_truth_data: GroundTruthData to be sampled from. If labels is not None, numpy dataset
     representation_function: Function that takes observations as input and
       outputs a dim_representation sized representation for each observation.
     random_state: Numpy random state used for randomness.
@@ -46,55 +47,58 @@ def compute_nmig(ground_truth_data,
   Returns:
     Dict with average mutual information gap.
   """
-  # allow partial mig so far only for dsprites
-  logging.info("Generating training set.")
-  mus_train, ys_train = utils.generate_batch_factor_code(
-      ground_truth_data, representation_function, num_train,
-      random_state, batch_size)
-  assert mus_train.shape[1] == num_train
-  return _compute_nmig(mus_train, ys_train, active)
+    # allow partial mig so far only for dsprites
+    logging.info("Generating training set.")
+    if labels is not None:
+        mus_train, ys_train = utils.generate_batch_factor_code_pytorch(
+            ground_truth_data, labels, representation_function,
+            num_train, random_state, batch_size
+        )
+    else:
+        mus_train, ys_train = utils.generate_batch_factor_code(
+            ground_truth_data, representation_function, num_train,
+            random_state, batch_size)
+    assert mus_train.shape[1] == num_train
+    return _compute_nmig(mus_train, ys_train, active)
 
 
 def _compute_nmig(mus_train, ys_train, active):
-  """Computes score based on both training and testing codes and factors."""
-  print("start nmig")
-  score_dict = {}
-  discretized_mus = utils.make_discretizer(mus_train)
-  m = utils.discrete_mutual_info(discretized_mus, ys_train)
-  print("finished discretizing")
-  assert m.shape[0] == mus_train.shape[0]
-  assert m.shape[1] == ys_train.shape[0]
-  entropy = utils.discrete_entropy(ys_train)
-  if active is not None:
-    assert len(active) <= ys_train.shape[0]
-    m = m[:, active]
-    entropy = entropy[active]
-  nr_lt = m.shape[0]
-  nr_gt = m.shape[1]
-  # m is [num_latents, num_factors]
+    """Computes score based on both training and testing codes and factors."""
+    print("start nmig")
+    score_dict = {}
+    discretized_mus = utils.make_discretizer(mus_train)
+    m = utils.discrete_mutual_info(discretized_mus, ys_train)
+    print("finished discretizing")
+    assert m.shape[0] == mus_train.shape[0]
+    assert m.shape[1] == ys_train.shape[0]
+    entropy = utils.discrete_entropy(ys_train)
+    if active is not None:
+        assert len(active) <= ys_train.shape[0]
+        m = m[:, active]
+        entropy = entropy[active]
+    nr_lt = m.shape[0]
+    nr_gt = m.shape[1]
+    # m is [num_latents, num_factors]
 
-  sorted_m = np.sort(m, axis=0)[::-1]
-  individual_mig = np.divide(sorted_m[0, :] - sorted_m[1, :], entropy[:])
-  print("ind mig", individual_mig)
-  mig = np.mean(individual_mig)
+    sorted_m = np.sort(m, axis=0)[::-1]
+    individual_mig = np.divide(sorted_m[0, :] - sorted_m[1, :], entropy[:])
+    print("ind mig", individual_mig)
+    mig = np.mean(individual_mig)
 
-  if nr_gt == 1:
-    nmig = np.max(np.divide(m, entropy[:]))
-  else:
-    m = np.divide(m, entropy[:])
-    partials = np.zeros((nr_gt))
-    best_ids = np.argmax(m, axis=0)
-    for i in range(nr_gt):
-      mask = np.ones((nr_gt), dtype=np.bool)
-      mask[i] = 0
-      best_id = best_ids[i]
-      partials[i] = m[best_id, i] - np.max(m[best_id, mask])
-    nmig = np.mean(partials)
-    print("ind nmig", partials)
-  score_dict["discrete_mig"] = mig
-  score_dict["discrete_nmig"] = nmig
+    if nr_gt == 1:
+        nmig = np.max(np.divide(m, entropy[:]))
+    else:
+        m = np.divide(m, entropy[:])
+        partials = np.zeros((nr_gt))
+        best_ids = np.argmax(m, axis=0)
+        for i in range(nr_gt):
+            mask = np.ones((nr_gt), dtype=np.bool)
+            mask[i] = 0
+            best_id = best_ids[i]
+            partials[i] = m[best_id, i] - np.max(m[best_id, mask])
+        nmig = np.mean(partials)
+        print("ind nmig", partials)
+    score_dict["discrete_mig"] = mig
+    score_dict["discrete_nmig"] = nmig
 
-
-  return score_dict
-
-
+    return score_dict

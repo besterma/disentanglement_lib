@@ -24,7 +24,7 @@ import numpy as np
 import PIL
 from six.moves import range
 from six.moves import zip
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 SMALLNORB_TEMPLATE = os.path.join(
