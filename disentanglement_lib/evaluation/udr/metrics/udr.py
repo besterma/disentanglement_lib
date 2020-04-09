@@ -408,6 +408,7 @@ def compute_udr_sklearn_2(ground_truth_data,
                           pytorch=False,
                           known_label_factor=0.5,
                           labels=None,
+                          inverse_kl_weighting=False,
                           ):
     """Computes the UDR score using scikit-learn.
 
@@ -517,10 +518,12 @@ def compute_udr_sklearn_2(ground_truth_data,
             else:
                 corr_matrix = spearman_correlation_conv(inferred_model_reps[i],
                                                         inferred_model_reps[j])
-
+            corr_matrix_all[i, j, :, :] = corr_matrix
             if labels is not None and (known_label_mask[i].any() and known_label_mask[j].any()):
                 corr_matrix[np.ix_(known_label_mask[i], known_label_mask[j])] *= known_label_factor
-            corr_matrix_all[i, j, :, :] = corr_matrix
+            if inverse_kl_weighting:
+                assert filter_low_kl, "Inverse kl weighting only possible if filter_low_kl is set"
+                corr_matrix *= 1 / kl[j]
             if filter_low_kl:
                 corr_matrix = corr_matrix[kl_mask[i], ...][..., kl_mask[j]]
             if not (kl_mask[i].any() and kl_mask[j].any()):
