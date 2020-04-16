@@ -82,6 +82,8 @@ def generate_batch_factor_code_pytorch(data, labels, representation_function,
     factors = None
     i = 0
     indices = random_state.choice(range(len(data)), size=(num_points, ), replace=False)
+    if len(labels.shape) == 1:
+        labels = np.expand_dims(labels, -1)
 
     while i < num_points:
         num_points_iter = min(num_points - i, batch_size)
