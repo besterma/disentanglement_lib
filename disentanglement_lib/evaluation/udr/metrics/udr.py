@@ -180,7 +180,13 @@ def _generate_representation_dataset_pytorch(dataset,
       array with training set features.
     kl: (dim_representation) - The average KL divergence per latent in the
       representation.
-  """
+    """
+    if num_data_points > len(dataset):
+        temp_num_dp = num_data_points
+        num_data_points = len(dataset) - (len(dataset) % batch_size)
+        print("UDR: reduced num_data_points from", temp_num_dp, "to", num_data_points,
+              "due to smaller dataset")
+
     if num_data_points % batch_size != 0:
         raise ValueError("num_data_points must be a multiple of batch_size")
 
