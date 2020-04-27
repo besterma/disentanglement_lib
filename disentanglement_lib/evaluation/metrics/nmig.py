@@ -62,6 +62,7 @@ def compute_nmig(ground_truth_data,
     return _compute_nmig(mus_train, ys_train, active)
 
 
+@gin.configurable("nmig_leaf", whitelist=["num_train", "batch_size"])
 def compute_nmig_leaf(datasets_list,
                       labels_list,
                       representation_function,
