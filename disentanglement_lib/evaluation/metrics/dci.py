@@ -32,8 +32,8 @@ import gin.tf
 
 @gin.configurable(
     "dci",
-    blacklist=["ground_truth_data", "representation_function", "random_state"])
-def compute_dci(ground_truth_data, representation_function, random_state,
+    blacklist=["ground_truth_data", "representation_function", "random_state", "labels"])
+def compute_dci(ground_truth_data, representation_function, random_state, labels=None,
                 num_train=gin.REQUIRED,
                 num_test=gin.REQUIRED,
                 batch_size=16):
@@ -44,6 +44,7 @@ def compute_dci(ground_truth_data, representation_function, random_state,
     representation_function: Function that takes observations as input and
       outputs a dim_representation sized representation for each observation.
     random_state: Numpy random state used for randomness.
+    labels: labels to use if ground_truth_data is simple numpy array
     num_train: Number of points used for training.
     num_test: Number of points used for testing.
     batch_size: Batch size for sampling.
@@ -55,14 +56,26 @@ def compute_dci(ground_truth_data, representation_function, random_state,
   logging.info("Generating training set.")
   # mus_train are of shape [num_codes, num_train], while ys_train are of shape
   # [num_factors, num_train].
-  mus_train, ys_train = utils.generate_batch_factor_code(
-      ground_truth_data, representation_function, num_train,
-      random_state, batch_size)
+  if labels is not None:
+    mus_train, ys_train = utils.generate_batch_factor_code_pytorch(
+      ground_truth_data, labels, representation_function,
+      num_train, random_state, batch_size
+    )
+  else:
+    mus_train, ys_train = utils.generate_batch_factor_code(
+        ground_truth_data, representation_function, num_train,
+        random_state, batch_size)
   assert mus_train.shape[1] == num_train
   assert ys_train.shape[1] == num_train
-  mus_test, ys_test = utils.generate_batch_factor_code(
-      ground_truth_data, representation_function, num_test,
-      random_state, batch_size)
+  if labels is not None:
+    mus_test, ys_test = utils.generate_batch_factor_code_pytorch(
+      ground_truth_data, labels, representation_function,
+      num_train, random_state, batch_size
+    )
+  else:
+    mus_test, ys_test = utils.generate_batch_factor_code(
+        ground_truth_data, representation_function, num_test,
+        random_state, batch_size)
   scores = _compute_dci(mus_train, ys_train, mus_test, ys_test)
   return scores
 
