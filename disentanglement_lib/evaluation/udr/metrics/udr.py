@@ -182,6 +182,9 @@ def _generate_representation_dataset_pytorch(dataset,
       representation.
     """
     if num_data_points > len(dataset):
+        if num_data_points < batch_size:
+            batch_size = num_data_points
+            print("UDR: Danger, num_data_points < batch_size, reduced batch_size")
         temp_num_dp = num_data_points
         num_data_points = len(dataset) - (len(dataset) % batch_size)
         print("UDR: reduced num_data_points from", temp_num_dp, "to", num_data_points,
