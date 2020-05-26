@@ -72,9 +72,11 @@ def compute_nmig_leaf(datasets_list,
     assert len(datasets_list) == len(labels_list)
 
     nr_factors = len(datasets_list)
+    effective_nr_factors = 0
     nr_samples_list = []
     for i in range(nr_factors):
         nr_samples_list.append(np.min((num_train, len(datasets_list[i]))))
+        effective_nr_factors += 1 if len(labels_list[i].shape) == 1 else labels_list[i].shape[1]
 
     mus_train = []
     ys_train = []
@@ -89,20 +91,25 @@ def compute_nmig_leaf(datasets_list,
         mus_train.append(mu)
         ys_train.append(y)
 
-    m = np.zeros((mus_train[0].shape[0], nr_factors))
-    entropy = np.zeros((nr_factors))
+    m = np.zeros((mus_train[0].shape[0], effective_nr_factors))
+    entropy = np.zeros((effective_nr_factors))
+
+    s_i = 0
     for i in range(nr_factors):
         discretized_mus = utils.make_discretizer(mus_train[i])
         discretized_ys = utils.make_discretizer(ys_train[i])
-        m[:, i] = utils.discrete_mutual_info(discretized_mus, discretized_ys)[:, 0]
-        entropy[i] = utils.discrete_entropy(discretized_ys)
+        disc_mi = utils.discrete_mutual_info(discretized_mus, discretized_ys)
+        size = disc_mi.shape[1]
+        m[:, s_i:s_i+size] = disc_mi
+        entropy[s_i:s_i+size] = utils.discrete_entropy(discretized_ys)
+        s_i += size
 
     sorted_m = np.sort(m, axis=0)[::-1]
     individual_mig = np.divide(sorted_m[0, :] - sorted_m[1, :], entropy[:])
     print("ind mig", individual_mig)
     mig = np.mean(individual_mig)
 
-    nr_gt = nr_factors
+    nr_gt = effective_nr_factors
 
     if nr_gt == 1:
         nmig = np.max(np.divide(m, entropy[:]))
