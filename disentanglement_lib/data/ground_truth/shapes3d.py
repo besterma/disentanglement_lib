@@ -74,6 +74,7 @@ class Shapes3D(ground_truth_data.GroundTruthData):
   def observation_shape(self):
     return [64, 64, 3]
 
+
   def sample_factors(self, num, random_state):
     """Sample a batch of factors Y."""
     return self.state_space.sample_latent_factors(num, random_state)
