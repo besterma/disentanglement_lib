@@ -197,10 +197,8 @@ class ScreamDSprites(DSprites):
       mask = (observations[i] == 1)
       background[mask] = 1 - background[mask]
       observations[i] = background
-<<<<<<< HEAD
     return observations.astype(np.float32)
-=======
-    return observations
+
 
 
 # Object colors generated using
@@ -271,4 +269,3 @@ class AbstractDSprites(DSprites):
     object_color = np.expand_dims(np.expand_dims(object_color, 1), 1)
 
     return mask * object_color + (1. - mask) * background_color
->>>>>>> 86a644d4ed35c771560dc3360756363d35477357
