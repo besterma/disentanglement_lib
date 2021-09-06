@@ -24,8 +24,8 @@ import uuid
 from distutils import dir_util
 import numpy as np
 import simplejson as json
-import tensorflow as tf
-from tensorflow import gfile
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import gfile
 import gin.tf
 
 
@@ -103,6 +103,7 @@ def copydir(path_to_old_dir, path_to_new_dir):
 
 def save_gin(config_path):
   """Saves the operative gin config to a gin config file.
+  But: Cant use operative gin config with multiple processes, so we just use config_str()
 
   Args:
     config_path: String with path where to save the gin config.
@@ -113,7 +114,7 @@ def save_gin(config_path):
     tf.gfile.MakeDirs(directory)
   # Save the actual config.
   with tf.gfile.GFile(config_path, "w") as f:
-    f.write(gin.operative_config_str())
+    f.write(gin.config_str())
 
 
 class Encoder(json.JSONEncoder):
@@ -152,7 +153,7 @@ def gin_dict(config_path=None):
 
   Args:
     config_path: Path to gin config file. If set to None (default), currently
-      active bindings using gin.operative_config_str() are used.
+      active bindings using gin.config_str() are used, to cover the multi_process case
 
   Returns:
     Dictionary with gin bindings as string keys and string values.
@@ -161,7 +162,7 @@ def gin_dict(config_path=None):
   # Gin does not allow to directly retrieve a dictionary but it allows to
   # obtain a string with all active configs in human readable format.
   if config_path is None:
-    operative_str = gin.operative_config_str()
+    operative_str = gin.config_str()
   else:
     with tf.gfile.GFile(config_path, "r") as f:
       operative_str = f.read()

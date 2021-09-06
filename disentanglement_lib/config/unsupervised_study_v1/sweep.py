@@ -39,6 +39,13 @@ def get_datasets():
           "scream_dsprites", "smallnorb", "cars3d", "shapes3d"
       ]))
 
+def get_num_models():
+    return h.sweep(
+        "UDRVAE.num_models",
+        h.categorical([
+            "5, 15"
+        ]))
+
 
 def get_num_latent(sweep):
   return h.sweep("encoder.num_latent", h.discrete(sweep))

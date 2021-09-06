@@ -26,11 +26,26 @@ from disentanglement_lib.visualize.visualize_irs import vis_all_interventional_e
 import numpy as np
 from scipy import stats
 from six.moves import range
-import tensorflow as tf
-from tensorflow import gfile
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import gfile
 import tensorflow_hub as hub
 import gin.tf
 
+
+
+def visualize_with_gin(model_dir,
+                      output_dir,
+                      overwrite=False,
+                      gin_config_files=None,
+                      gin_bindings=None,
+                      pytorch=True):
+  if gin_config_files is None:
+    gin_config_files = []
+  if gin_bindings is None:
+    gin_bindings = []
+  gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
+  visualize(model_dir, output_dir, pytorch, overwrite)
+  gin.clear_config()
 
 def visualize(model_dir,
               output_dir,
@@ -38,7 +53,8 @@ def visualize(model_dir,
               num_animations=5,
               num_frames=20,
               fps=10,
-              num_points_irs=10000):
+              num_points_irs=10000,
+              pytorch=True):
   """Takes trained model from model_dir and visualizes it in output_dir.
 
   Args:
@@ -64,72 +80,262 @@ def visualize(model_dir,
   # gin config as this will lead to a valid gin config file where the data set
   # is present.
   # Obtain the dataset name from the gin config of the previous step.
-  gin_config_file = os.path.join(model_dir, "results", "gin", "train.gin")
-  gin_dict = results.gin_dict(gin_config_file)
-  gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
-      "'", ""))
+  # if gin.query_parameter("dataset.name") == "auto":
+    # Obtain the dataset name from the gin config of the previous step.
 
-  # Automatically infer the activation function from gin config.
-  activation_str = gin_dict["reconstruction_loss.activation"]
-  if activation_str == "'logits'":
-    activation = sigmoid
-  elif activation_str == "'tanh'":
-    activation = tanh
+    #edited for pytorch case
+  if(pytorch):
+    gin_config_file = os.path.join(model_dir, "results", "gin",
+                                   "train.gin")
   else:
-    raise ValueError(
-        "Activation function  could not be infered from gin config.")
+    gin_config_file = os.path.join(model_dir, "results", "gin",
+                                   "postprocess.gin")
+  gin_dict = results.gin_dict(gin_config_file)
+  with gin.unlock_config():
+    gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
+        "'", ""))
+    gin.bind_parameter("VAE.conv", bool(gin_dict["VAE.conv"].replace(
+      "'", "")))
+    gin.bind_parameter("VAE.num_channels", int(gin_dict["VAE.num_channels"].replace(
+      "'", "")))
+    gin.bind_parameter("VAE.use_cuda", bool(gin_dict["VAE.use_cuda"].replace(
+      "'", "")))
+    gin.bind_parameter("VAE.z_dim", int(gin_dict["VAE.z_dim"].replace(
+      "'", "")))
+
+  # dataset = named_data.get_named_ground_truth_data()
+
+  # gin_config_file = os.path.join(model_dir, "results", "gin", "train.gin")
+  # gin_dict = results.gin_dict(gin_config_file)
+  # gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
+  #     "'", ""))
+
+
 
   dataset = named_data.get_named_ground_truth_data()
   num_pics = 64
   module_path = os.path.join(model_dir, "tfhub")
 
-  with hub.eval_function_for_module(module_path) as f:
+
+  if(not pytorch):
+
+    # Automatically infer the activation function from gin config.
+    activation_str = gin_dict["reconstruction_loss.activation"]
+    if activation_str == "'logits'":
+      activation = sigmoid
+    elif activation_str == "'tanh'":
+      activation = tanh
+    else:
+      raise ValueError(
+        "Activation function  could not be infered from gin config.")
+
+
+    with hub.eval_function_for_module(module_path) as f:
+      # Save reconstructions.
+      real_pics = dataset.sample_observations(num_pics, random_state)
+      raw_pics = f(
+          dict(images=real_pics), signature="reconstructions",
+          as_dict=True)["images"]
+      pics = activation(raw_pics)
+      paired_pics = np.concatenate((real_pics, pics), axis=2)
+      paired_pics = [paired_pics[i, :, :, :] for i in range(paired_pics.shape[0])]
+      results_dir = os.path.join(output_dir, "reconstructions")
+      if not gfile.IsDirectory(results_dir):
+        gfile.MakeDirs(results_dir)
+      visualize_util.grid_save_images(
+          paired_pics, os.path.join(results_dir, "reconstructions.jpg"))
+
+      # Save samples.
+      def _decoder(latent_vectors):
+        return f(
+            dict(latent_vectors=latent_vectors),
+            signature="decoder",
+            as_dict=True)["images"]
+
+      num_latent = int(gin_dict["encoder.num_latent"])
+      num_pics = 64
+      random_codes = random_state.normal(0, 1, [num_pics, num_latent])
+      pics = activation(_decoder(random_codes))
+      results_dir = os.path.join(output_dir, "sampled")
+      if not gfile.IsDirectory(results_dir):
+        gfile.MakeDirs(results_dir)
+      visualize_util.grid_save_images(pics,
+                                      os.path.join(results_dir, "samples.jpg"))
+
+      # Save latent traversals.
+      result = f(
+          dict(images=dataset.sample_observations(num_pics, random_state)),
+          signature="gaussian_encoder",
+          as_dict=True)
+      means = result["mean"]
+      logvars = result["logvar"]
+      results_dir = os.path.join(output_dir, "traversals")
+      if not gfile.IsDirectory(results_dir):
+        gfile.MakeDirs(results_dir)
+      for i in range(means.shape[1]):
+        pics = activation(
+            latent_traversal_1d_multi_dim(_decoder, means[i, :], None))
+        file_name = os.path.join(results_dir, "traversals{}.jpg".format(i))
+        visualize_util.grid_save_images([pics], file_name)
+
+      # Save the latent traversal animations.
+      results_dir = os.path.join(output_dir, "animated_traversals")
+      if not gfile.IsDirectory(results_dir):
+        gfile.MakeDirs(results_dir)
+
+      # Cycle through quantiles of a standard Gaussian.
+      for i, base_code in enumerate(means[:num_animations]):
+        images = []
+        for j in range(base_code.shape[0]):
+          code = np.repeat(np.expand_dims(base_code, 0), num_frames, axis=0)
+          code[:, j] = visualize_util.cycle_gaussian(base_code[j], num_frames)
+          images.append(np.array(activation(_decoder(code))))
+        filename = os.path.join(results_dir, "std_gaussian_cycle%d.gif" % i)
+        visualize_util.save_animation(np.array(images), filename, fps)
+
+      # Cycle through quantiles of a fitted Gaussian.
+      for i, base_code in enumerate(means[:num_animations]):
+        images = []
+        for j in range(base_code.shape[0]):
+          code = np.repeat(np.expand_dims(base_code, 0), num_frames, axis=0)
+          loc = np.mean(means[:, j])
+          total_variance = np.mean(np.exp(logvars[:, j])) + np.var(means[:, j])
+          code[:, j] = visualize_util.cycle_gaussian(
+              base_code[j], num_frames, loc=loc, scale=np.sqrt(total_variance))
+          images.append(np.array(activation(_decoder(code))))
+        filename = os.path.join(results_dir, "fitted_gaussian_cycle%d.gif" % i)
+        visualize_util.save_animation(np.array(images), filename, fps)
+
+      # Cycle through [-2, 2] interval.
+      for i, base_code in enumerate(means[:num_animations]):
+        images = []
+        for j in range(base_code.shape[0]):
+          code = np.repeat(np.expand_dims(base_code, 0), num_frames, axis=0)
+          code[:, j] = visualize_util.cycle_interval(base_code[j], num_frames,
+                                                     -2., 2.)
+          images.append(np.array(activation(_decoder(code))))
+        filename = os.path.join(results_dir, "fixed_interval_cycle%d.gif" % i)
+        visualize_util.save_animation(np.array(images), filename, fps)
+
+      # Cycle linearly through +-2 std dev of a fitted Gaussian.
+      for i, base_code in enumerate(means[:num_animations]):
+        images = []
+        for j in range(base_code.shape[0]):
+          code = np.repeat(np.expand_dims(base_code, 0), num_frames, axis=0)
+          loc = np.mean(means[:, j])
+          total_variance = np.mean(np.exp(logvars[:, j])) + np.var(means[:, j])
+          scale = np.sqrt(total_variance)
+          code[:, j] = visualize_util.cycle_interval(base_code[j], num_frames,
+                                                     loc-2.*scale, loc+2.*scale)
+          images.append(np.array(activation(_decoder(code))))
+        filename = os.path.join(results_dir, "conf_interval_cycle%d.gif" % i)
+        visualize_util.save_animation(np.array(images), filename, fps)
+
+      # Cycle linearly through minmax of a fitted Gaussian.
+      for i, base_code in enumerate(means[:num_animations]):
+        images = []
+        for j in range(base_code.shape[0]):
+          code = np.repeat(np.expand_dims(base_code, 0), num_frames, axis=0)
+          code[:, j] = visualize_util.cycle_interval(base_code[j], num_frames,
+                                                     np.min(means[:, j]),
+                                                     np.max(means[:, j]))
+          images.append(np.array(activation(_decoder(code))))
+        filename = os.path.join(results_dir, "minmax_interval_cycle%d.gif" % i)
+        visualize_util.save_animation(np.array(images), filename, fps)
+
+      # Interventional effects visualization.
+      factors = dataset.sample_factors(num_points_irs, random_state)
+      obs = dataset.sample_observations_from_factors(factors, random_state)
+      latents = f(
+          dict(images=obs), signature="gaussian_encoder", as_dict=True)["mean"]
+      results_dir = os.path.join(output_dir, "interventional_effects")
+      vis_all_interventional_effects(factors, latents, results_dir)
+
+  else:
+    import sys
+    import torch
+    from beta_tcvae.vae_quant import VAE
+    model = VAE(device=0)
+    #TODO: here maybe general case for >4 GPUs
+    checkpoint = torch.load(module_path + "/model.pth",
+                            map_location={'cuda:3': 'cuda:0', 'cuda:2': 'cuda:0', 'cuda:1': 'cuda:0'})
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model.eval()
+
+    # Save latent traversals.
+
+    def _encoder(x):
+      x = np.moveaxis(x, 3,1)
+      x = torch.from_numpy(x).to(0)
+
+      zs, zs_params = model.encode(x)
+      zs = zs.cpu().detach().numpy()
+      zs_params = zs_params.cpu().detach().numpy()
+
+      return zs, zs_params
+
+    def _decoder(latent_vectors):
+      latent_vectors = torch.from_numpy(latent_vectors).to(0)
+      latent_vectors = latent_vectors.type(dtype=torch.float32)
+      xs, xs_params = model.decode(latent_vectors)
+      xs_params = xs_params.sigmoid().cpu().detach().numpy()
+      xs_params = np.moveaxis(xs_params, 1, 3)
+
+      return xs_params
     # Save reconstructions.
+
+    # feed samples through pytorch model
+
     real_pics = dataset.sample_observations(num_pics, random_state)
-    raw_pics = f(
-        dict(images=real_pics), signature="reconstructions",
-        as_dict=True)["images"]
-    pics = activation(raw_pics)
+    x = torch.from_numpy(real_pics).to(0)
+    zs, zs_params = _encoder(real_pics)
+    pics = _decoder(zs_params[:,:,0])
+
     paired_pics = np.concatenate((real_pics, pics), axis=2)
     paired_pics = [paired_pics[i, :, :, :] for i in range(paired_pics.shape[0])]
     results_dir = os.path.join(output_dir, "reconstructions")
     if not gfile.IsDirectory(results_dir):
       gfile.MakeDirs(results_dir)
     visualize_util.grid_save_images(
-        paired_pics, os.path.join(results_dir, "reconstructions.jpg"))
+      paired_pics, os.path.join(results_dir, "reconstructions.jpg"))
+
+
+    # save decoded samples
 
     # Save samples.
-    def _decoder(latent_vectors):
-      return f(
-          dict(latent_vectors=latent_vectors),
-          signature="decoder",
-          as_dict=True)["images"]
 
-    num_latent = int(gin_dict["encoder.num_latent"])
+    # num_latent = int(gin_dict["encoder.num_latent"])
+    num_latent = 10
     num_pics = 64
+
     random_codes = random_state.normal(0, 1, [num_pics, num_latent])
-    pics = activation(_decoder(random_codes))
+    xs = _decoder(random_codes)
+    pics = xs
+
     results_dir = os.path.join(output_dir, "sampled")
     if not gfile.IsDirectory(results_dir):
       gfile.MakeDirs(results_dir)
     visualize_util.grid_save_images(pics,
                                     os.path.join(results_dir, "samples.jpg"))
 
-    # Save latent traversals.
-    result = f(
-        dict(images=dataset.sample_observations(num_pics, random_state)),
-        signature="gaussian_encoder",
-        as_dict=True)
-    means = result["mean"]
-    logvars = result["logvar"]
+
+
+    num_pics = 10
+    real_pics = dataset.sample_observations(num_pics, random_state)
+    # pics = torch.from_numpy(real_pics).to(0)
+    zs, zs_params = _encoder(real_pics)
+
+    means = zs_params[:,:,0]
+    logvars = zs_params[:,:,1]
+
     results_dir = os.path.join(output_dir, "traversals")
     if not gfile.IsDirectory(results_dir):
       gfile.MakeDirs(results_dir)
     for i in range(means.shape[1]):
-      pics = activation(
-          latent_traversal_1d_multi_dim(_decoder, means[i, :], None))
+      pics = latent_traversal_1d_multi_dim(_decoder, means[i, :], None)
       file_name = os.path.join(results_dir, "traversals{}.jpg".format(i))
       visualize_util.grid_save_images([pics], file_name)
+
 
     # Save the latent traversal animations.
     results_dir = os.path.join(output_dir, "animated_traversals")
@@ -142,8 +348,8 @@ def visualize(model_dir,
       for j in range(base_code.shape[0]):
         code = np.repeat(np.expand_dims(base_code, 0), num_frames, axis=0)
         code[:, j] = visualize_util.cycle_gaussian(base_code[j], num_frames)
-        images.append(np.array(activation(_decoder(code))))
-      filename = os.path.join(results_dir, "std_gaussian_cycle%d.gif" % i)
+        images.append(_decoder(code))
+      filename = os.path.join(results_dir, " %d.gif" % i)
       visualize_util.save_animation(np.array(images), filename, fps)
 
     # Cycle through quantiles of a fitted Gaussian.
@@ -155,7 +361,7 @@ def visualize(model_dir,
         total_variance = np.mean(np.exp(logvars[:, j])) + np.var(means[:, j])
         code[:, j] = visualize_util.cycle_gaussian(
             base_code[j], num_frames, loc=loc, scale=np.sqrt(total_variance))
-        images.append(np.array(activation(_decoder(code))))
+        images.append(_decoder(code))
       filename = os.path.join(results_dir, "fitted_gaussian_cycle%d.gif" % i)
       visualize_util.save_animation(np.array(images), filename, fps)
 
@@ -166,7 +372,7 @@ def visualize(model_dir,
         code = np.repeat(np.expand_dims(base_code, 0), num_frames, axis=0)
         code[:, j] = visualize_util.cycle_interval(base_code[j], num_frames,
                                                    -2., 2.)
-        images.append(np.array(activation(_decoder(code))))
+        images.append(_decoder(code))
       filename = os.path.join(results_dir, "fixed_interval_cycle%d.gif" % i)
       visualize_util.save_animation(np.array(images), filename, fps)
 
@@ -180,7 +386,7 @@ def visualize(model_dir,
         scale = np.sqrt(total_variance)
         code[:, j] = visualize_util.cycle_interval(base_code[j], num_frames,
                                                    loc-2.*scale, loc+2.*scale)
-        images.append(np.array(activation(_decoder(code))))
+        images.append(_decoder(code))
       filename = os.path.join(results_dir, "conf_interval_cycle%d.gif" % i)
       visualize_util.save_animation(np.array(images), filename, fps)
 
@@ -192,17 +398,10 @@ def visualize(model_dir,
         code[:, j] = visualize_util.cycle_interval(base_code[j], num_frames,
                                                    np.min(means[:, j]),
                                                    np.max(means[:, j]))
-        images.append(np.array(activation(_decoder(code))))
+        images.append(_decoder(code))
       filename = os.path.join(results_dir, "minmax_interval_cycle%d.gif" % i)
       visualize_util.save_animation(np.array(images), filename, fps)
 
-    # Interventional effects visualization.
-    factors = dataset.sample_factors(num_points_irs, random_state)
-    obs = dataset.sample_observations_from_factors(factors, random_state)
-    latents = f(
-        dict(images=obs), signature="gaussian_encoder", as_dict=True)["mean"]
-    results_dir = os.path.join(output_dir, "interventional_effects")
-    vis_all_interventional_effects(factors, latents, results_dir)
 
   # Finally, we clear the gin config that we have set.
   gin.clear_config()

@@ -23,7 +23,7 @@ from disentanglement_lib.data.ground_truth import util
 import numpy as np
 import PIL
 from six.moves import range
-from tensorflow import gfile
+from tensorflow.compat.v1 import gfile
 
 
 DSPRITES_PATH = os.path.join(
@@ -81,6 +81,7 @@ class DSprites(ground_truth_data.GroundTruthData):
   def observation_shape(self):
     return self.data_shape
 
+
   def sample_factors(self, num, random_state):
     """Sample a batch of factors Y."""
     return self.state_space.sample_latent_factors(num, random_state)
@@ -128,7 +129,8 @@ class ColorDSprites(DSprites):
             axis=1),
         observations.shape[2],
         axis=2)
-    return observations * color
+    returnarray = observations * color
+    return returnarray.astype(np.float32)
 
 
 class NoisyDSprites(DSprites):
@@ -155,7 +157,7 @@ class NoisyDSprites(DSprites):
         factors, random_state)
     observations = np.repeat(no_color_observations, 3, axis=3)
     color = random_state.uniform(0, 1, [observations.shape[0], 64, 64, 3])
-    return np.minimum(observations + color, 1.)
+    return np.minimum(observations + color, 1.).astype(np.float32)
 
 
 class ScreamDSprites(DSprites):
@@ -195,4 +197,78 @@ class ScreamDSprites(DSprites):
       mask = (observations[i] == 1)
       background[mask] = 1 - background[mask]
       observations[i] = background
+<<<<<<< HEAD
+    return observations.astype(np.float32)
+=======
     return observations
+
+
+# Object colors generated using
+# >> seaborn.husl_palette(n_colors=6, h=0.1, s=0.7, l=0.7)
+OBJECT_COLORS = np.array(
+    [[0.9096231780824386, 0.5883403686424795, 0.3657680693481871],
+     [0.6350181801577739, 0.6927729880940552, 0.3626904230371999],
+     [0.3764832455369271, 0.7283900430001952, 0.5963114605342514],
+     [0.39548987063404156, 0.7073922557810771, 0.7874577552076919],
+     [0.6963644829189117, 0.6220697032672371, 0.899716387820763],
+     [0.90815966835861, 0.5511103319168646, 0.7494337214212151]])
+
+BACKGROUND_COLORS = np.array([
+    (0., 0., 0.),
+    (.25, .25, .25),
+    (.5, .5, .5),
+    (.75, .75, .75),
+    (1., 1., 1.),
+])
+
+
+class AbstractDSprites(DSprites):
+  """DSprites variation for abstract reasoning task.
+
+  Rotation is not considered a ground-truth factor and we sample random colors
+  both for the object and the background.
+
+  The ground-truth factors of variation are (in the default setting):
+  0 - background color (5 different values)
+  1 - object color (6 different values)
+  2 - shape (3 different values)
+  3 - scale (6 different values)
+  4 - position x (32 different values)
+  5 - position y (32 different values)
+  """
+
+  def __init__(self):
+    # We retain all original factors except shape.
+    DSprites.__init__(self, [1, 2, 4, 5])
+    self.data_shape = [64, 64, 3]
+
+  @property
+  def num_factors(self):
+    return 2 + self.state_space.num_latent_factors
+
+  @property
+  def factors_num_values(self):
+    return ([BACKGROUND_COLORS.shape[0], OBJECT_COLORS.shape[0]] +
+            [self.full_factor_sizes[i] for i in self.latent_factor_indices])
+
+  def sample_factors(self, num, random_state):
+    """Sample a batch of factors Y."""
+    colors = np.zeros((num, 2), dtype=np.int64)
+    colors[:, 0] = random_state.randint(BACKGROUND_COLORS.shape[0], size=num)
+    colors[:, 1] = random_state.randint(OBJECT_COLORS.shape[0], size=num)
+    other_factors = self.state_space.sample_latent_factors(num, random_state)
+    return np.concatenate([colors, other_factors], axis=-1)
+
+  def sample_observations_from_factors(self, factors, random_state):
+    mask = self.sample_observations_from_factors_no_color(
+        factors[:, 2:], random_state)
+
+    background_color = BACKGROUND_COLORS[factors[:, 0]]
+    object_color = OBJECT_COLORS[factors[:, 1]]
+
+    # Add axis for height and width.
+    background_color = np.expand_dims(np.expand_dims(background_color, 1), 1)
+    object_color = np.expand_dims(np.expand_dims(object_color, 1), 1)
+
+    return mask * object_color + (1. - mask) * background_color
+>>>>>>> 86a644d4ed35c771560dc3360756363d35477357

@@ -25,15 +25,27 @@ from disentanglement_lib.methods.unsupervised import gaussian_encoder_model
 from disentanglement_lib.methods.unsupervised import vae  # pylint: disable=unused-import
 from disentanglement_lib.utils import results
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import gin.tf.external_configurables  # pylint: disable=unused-import
 import gin.tf
+import sys
+from shutil import copyfile
+from torch.optim import Adam
+from tensorflow.contrib import tpu as contrib_tpu
 
+from os import path
+
+sys.path.append(path.expanduser('~/Python/PopulationBasedTraining'))
+from pbt4vae.main import pbt_main
+sys.path.append(path.expanduser('~/Python/beta-tcvae'))
+from beta_tcvae.vae_quant import UDRVAE
+#test
 
 def train_with_gin(model_dir,
                    overwrite=False,
                    gin_config_files=None,
-                   gin_bindings=None):
+                   gin_bindings=None,
+                   pytorch=True):
   """Trains a model based on the provided gin configuration.
 
   This function will set the provided gin bindings, call the train() function
@@ -49,8 +61,36 @@ def train_with_gin(model_dir,
     gin_config_files = []
   if gin_bindings is None:
     gin_bindings = []
+  gin.external_configurable(Adam, module='torch')
   gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
-  train(model_dir, overwrite)
+  if(pytorch):
+    pbt(model_dir,overwrite)
+  else:
+    train(model_dir, overwrite)
+  gin.clear_config()
+
+def pbt_with_gin(model_dir,
+                 overwrite=False,
+                 gin_config_files=None,
+                 gin_bindings=None):
+  """Trains a model based on the provided gin configuration.
+
+  This function will set the provided gin bindings, call the train() function
+  and clear the gin config. Please see train() for required gin bindings.
+
+  Args:
+    model_dir: String with path to directory where model output should be saved.
+    overwrite: Boolean indicating whether to overwrite output directory.
+    gin_config_files: List of gin config files to load.
+    gin_bindings: List of gin bindings to use.
+  """
+  if gin_config_files is None:
+      gin_config_files = []
+  if gin_bindings is None:
+      gin_bindings = []
+  # gin.external_configurable(Adam, module='torch')
+  gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
+  pbt(model_dir, overwrite)
   gin.clear_config()
 
 
@@ -102,11 +142,11 @@ def train(model_dir,
   # We create a TPUEstimator based on the provided model. This is primarily so
   # that we could switch to TPU training in the future. For now, we train
   # locally on GPUs.
-  run_config = tf.contrib.tpu.RunConfig(
+  run_config = contrib_tpu.RunConfig(
       tf_random_seed=random_seed,
       keep_checkpoint_max=1,
-      tpu_config=tf.contrib.tpu.TPUConfig(iterations_per_loop=500))
-  tpu_estimator = tf.contrib.tpu.TPUEstimator(
+      tpu_config=contrib_tpu.TPUConfig(iterations_per_loop=500))
+  tpu_estimator = contrib_tpu.TPUEstimator(
       use_tpu=False,
       model_fn=model.model_fn,
       model_dir=os.path.join(model_dir, "tf_checkpoint"),
@@ -139,6 +179,46 @@ def train(model_dir,
   results_dict["elapsed_time"] = time.time() - experiment_timer
   results.update_result_directory(results_dir, "train", results_dict)
 
+
+@gin.configurable(blacklist=["model_dir", "overwrite"])
+def pbt(model_dir, overwrite=False, random_seed=gin.REQUIRED):
+    """Runs a pbt run and exports the snapshot and the gin config.
+
+    The use of this function requires the gin binding 'dataset.name' to be
+    specified as that determines the data set used for training.
+    dataset = util.torch_data_set_generator_from_ground_truth_data()
+
+    """
+    output_shape = named_data.get_named_ground_truth_data()
+
+    print("dislib: start pbt")
+    if tf.gfile.IsDirectory(model_dir):
+        if overwrite:
+            tf.gfile.DeleteRecursively(model_dir)
+        else:
+            raise ValueError("Directory already exists and overwrite is False.")
+    random_state = np.random.RandomState(random_seed)
+    # Set up time to keep track of elapsed time in results.
+    experiment_timer = time.time()
+    #id, udr_score, mig = pbt_main(model_dir=model_dir, dataset=dataset_iterator, random_seed=random_seed)
+    id, pbt_score_dict = pbt_main(model_dir=model_dir, random_seed=random_seed)
+
+    print("dislib: finished pbt")
+    output_shape = named_data.get_named_ground_truth_data().observation_shape
+    module_export_path = os.path.join(model_dir, "tfhub")
+    os.makedirs(module_export_path, exist_ok=True)
+
+    copyfile(os.path.join(model_dir, "bestmodels", "model.pth".format(id)),
+             os.path.join(module_export_path, "model.pth"))
+
+    results_dict = pbt_score_dict
+    #results_dict.add
+
+
+    #results_dict = {"reconstruction_loss": None, "elbo": None, "regularizer": None, "kl_loss": None} # TODO generate those values, right now we use what we have
+    #results_dict = {"score": udr_score, "mig": mig} # TODO these values are not computed on the same data split, recompute?
+    results_dir = os.path.join(model_dir, "results")
+    results.update_result_directory(results_dir, "train", results_dict)
 
 def _make_input_fn(ground_truth_data, seed, num_batches=None):
   """Creates an input function for the experiments."""

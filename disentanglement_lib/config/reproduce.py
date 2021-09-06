@@ -18,10 +18,20 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from disentanglement_lib.config.abstract_reasoning_study_v1.stage1 import sweep as abstract_reasoning_study_v1
+from disentanglement_lib.config.fairness_study_v1 import sweep as fairness_study_v1
 from disentanglement_lib.config.tests import sweep as tests
 from disentanglement_lib.config.unsupervised_study_v1 import sweep as unsupervised_study_v1
+from disentanglement_lib.config.udr_study import sweep as udr_study
+from disentanglement_lib.config.supervised_study import sweep as pbtVAEstudy
 
 STUDIES = {
     "unsupervised_study_v1": unsupervised_study_v1.UnsupervisedStudyV1(),
+    "abstract_reasoning_study_v1":
+        abstract_reasoning_study_v1.AbstractReasoningStudyV1(),
+    "fairness_study_v1":
+        fairness_study_v1.FairnessStudyV1(),
     "test": tests.TestStudy(),
+    "udr_study": udr_study.UdrStudy(),
+    "pbtVAEstudy": pbtVAEstudy.PbtVaeStudy(),
 }

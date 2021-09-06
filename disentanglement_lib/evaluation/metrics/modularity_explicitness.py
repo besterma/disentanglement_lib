@@ -24,18 +24,20 @@ from __future__ import print_function
 from disentanglement_lib.evaluation.metrics import utils
 import numpy as np
 from six.moves import range
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score
-from sklearn.preprocessing import MultiLabelBinarizer
+from sklearn import linear_model
+from sklearn import metrics
+from sklearn import preprocessing
 import gin.tf
 
 
 @gin.configurable(
     "modularity_explicitness",
-    blacklist=["ground_truth_data", "representation_function", "random_state"])
+    blacklist=["ground_truth_data", "representation_function", "random_state",
+               "artifact_dir"])
 def compute_modularity_explicitness(ground_truth_data,
                                     representation_function,
                                     random_state,
+                                    artifact_dir=None,
                                     num_train=gin.REQUIRED,
                                     num_test=gin.REQUIRED,
                                     batch_size=16):
@@ -46,6 +48,7 @@ def compute_modularity_explicitness(ground_truth_data,
     representation_function: Function that takes observations as input and
       outputs a dim_representation sized representation for each observation.
     random_state: Numpy random state used for randomness.
+    artifact_dir: Optional path to directory where artifacts can be saved.
     num_train: Number of points used for training.
     num_test: Number of points used for testing.
     batch_size: Batch size for sampling.
@@ -54,6 +57,7 @@ def compute_modularity_explicitness(ground_truth_data,
     Dictionary with average modularity score and average explicitness
       (train and test).
   """
+  del artifact_dir
   scores = {}
   mus_train, ys_train = utils.generate_batch_factor_code(
       ground_truth_data, representation_function, num_train,
@@ -97,14 +101,14 @@ def explicitness_per_factor(mus_train, y_train, mus_test, y_test):
   """
   x_train = np.transpose(mus_train)
   x_test = np.transpose(mus_test)
-  clf = LogisticRegression().fit(x_train, y_train)
+  clf = linear_model.LogisticRegression().fit(x_train, y_train)
   y_pred_train = clf.predict_proba(x_train)
   y_pred_test = clf.predict_proba(x_test)
-  mlb = MultiLabelBinarizer()
-  roc_train = roc_auc_score(mlb.fit_transform(np.expand_dims(y_train, 1)),
-                            y_pred_train)
-  roc_test = roc_auc_score(mlb.fit_transform(np.expand_dims(y_test, 1)),
-                           y_pred_test)
+  mlb = preprocessing.MultiLabelBinarizer()
+  roc_train = metrics.roc_auc_score(
+      mlb.fit_transform(np.expand_dims(y_train, 1)), y_pred_train)
+  roc_test = metrics.roc_auc_score(
+      mlb.fit_transform(np.expand_dims(y_test, 1)), y_pred_test)
   return roc_train, roc_test
 
 

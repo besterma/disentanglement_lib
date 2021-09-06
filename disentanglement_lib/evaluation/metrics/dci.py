@@ -26,14 +26,17 @@ from disentanglement_lib.evaluation.metrics import utils
 import numpy as np
 import scipy
 from six.moves import range
-from sklearn.ensemble import GradientBoostingClassifier
+from sklearn import ensemble
 import gin.tf
 
 
 @gin.configurable(
     "dci",
-    blacklist=["ground_truth_data", "representation_function", "random_state"])
+    blacklist=["ground_truth_data", "representation_function", "random_state", "labels",
+               "artifact_dir"])
 def compute_dci(ground_truth_data, representation_function, random_state,
+                labels=None,
+                artifact_dir=None,
                 num_train=gin.REQUIRED,
                 num_test=gin.REQUIRED,
                 batch_size=16):
@@ -44,6 +47,8 @@ def compute_dci(ground_truth_data, representation_function, random_state,
     representation_function: Function that takes observations as input and
       outputs a dim_representation sized representation for each observation.
     random_state: Numpy random state used for randomness.
+    labels: labels to use if ground_truth_data is simple numpy array
+    artifact_dir: Optional path to directory where artifacts can be saved.
     num_train: Number of points used for training.
     num_test: Number of points used for testing.
     batch_size: Batch size for sampling.
@@ -52,17 +57,30 @@ def compute_dci(ground_truth_data, representation_function, random_state,
     Dictionary with average disentanglement score, completeness and
       informativeness (train and test).
   """
+  del artifact_dir
   logging.info("Generating training set.")
   # mus_train are of shape [num_codes, num_train], while ys_train are of shape
   # [num_factors, num_train].
-  mus_train, ys_train = utils.generate_batch_factor_code(
-      ground_truth_data, representation_function, num_train,
-      random_state, batch_size)
+  if labels is not None:
+    mus_train, ys_train = utils.generate_batch_factor_code_pytorch(
+      ground_truth_data, labels, representation_function,
+      num_train, random_state, batch_size
+    )
+  else:
+    mus_train, ys_train = utils.generate_batch_factor_code(
+        ground_truth_data, representation_function, num_train,
+        random_state, batch_size)
   assert mus_train.shape[1] == num_train
   assert ys_train.shape[1] == num_train
-  mus_test, ys_test = utils.generate_batch_factor_code(
-      ground_truth_data, representation_function, num_test,
-      random_state, batch_size)
+  if labels is not None:
+    mus_test, ys_test = utils.generate_batch_factor_code_pytorch(
+      ground_truth_data, labels, representation_function,
+      num_train, random_state, batch_size
+    )
+  else:
+    mus_test, ys_test = utils.generate_batch_factor_code(
+        ground_truth_data, representation_function, num_test,
+        random_state, batch_size)
   scores = _compute_dci(mus_train, ys_train, mus_test, ys_test)
   return scores
 
@@ -81,6 +99,36 @@ def _compute_dci(mus_train, ys_train, mus_test, ys_test):
   return scores
 
 
+@gin.configurable(
+    "dci_validation",
+    blacklist=["observations", "labels", "representation_function"])
+def compute_dci_on_fixed_data(observations, labels, representation_function,
+                              train_percentage=gin.REQUIRED, batch_size=100):
+  """Computes the DCI scores on the fixed set of observations and labels.
+
+  Args:
+    observations: Observations on which to compute the score. Observations have
+      shape (num_observations, 64, 64, num_channels).
+    labels: Observed factors of variations.
+    representation_function: Function that takes observations as input and
+      outputs a dim_representation sized representation for each observation.
+    train_percentage: Percentage of observations used for training.
+    batch_size: Batch size used to compute the representation.
+
+  Returns:
+    DCI score.
+  """
+  mus = utils.obtain_representation(observations, representation_function,
+                                    batch_size)
+  assert labels.shape[1] == observations.shape[0], "Wrong labels shape."
+  assert mus.shape[1] == observations.shape[0], "Wrong representation shape."
+  mus_train, mus_test = utils.split_train_test(
+      mus,
+      train_percentage)
+  ys_train, ys_test = utils.split_train_test(
+      labels,
+      train_percentage)
+  return _compute_dci(mus_train, ys_train, mus_test, ys_test)
 
 
 def compute_importance_gbt(x_train, y_train, x_test, y_test):
@@ -92,7 +140,7 @@ def compute_importance_gbt(x_train, y_train, x_test, y_test):
   train_loss = []
   test_loss = []
   for i in range(num_factors):
-    model = GradientBoostingClassifier()
+    model = ensemble.GradientBoostingClassifier()
     model.fit(x_train.T, y_train[i, :])
     importance_matrix[:, i] = np.abs(model.feature_importances_)
     train_loss.append(np.mean(model.predict(x_train.T) == y_train[i, :]))
@@ -117,8 +165,8 @@ def disentanglement(importance_matrix):
   return np.sum(per_code*code_importance)
 
 
-def completeness_per_code(importance_matrix):
-  """Compute completeness of each code."""
+def completeness_per_factor(importance_matrix):
+  """Compute completeness of each factor."""
   # importance_matrix is of shape [num_codes, num_factors].
   return 1. - scipy.stats.entropy(importance_matrix + 1e-11,
                                   base=importance_matrix.shape[0])
@@ -126,7 +174,7 @@ def completeness_per_code(importance_matrix):
 
 def completeness(importance_matrix):
   """"Compute completeness of the representation."""
-  per_factor = completeness_per_code(importance_matrix)
+  per_factor = completeness_per_factor(importance_matrix)
   if importance_matrix.sum() == 0.:
     importance_matrix = np.ones_like(importance_matrix)
   factor_importance = importance_matrix.sum(axis=0) / importance_matrix.sum()

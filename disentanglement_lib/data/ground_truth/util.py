@@ -19,7 +19,8 @@ from __future__ import division
 from __future__ import print_function
 import numpy as np
 from six.moves import range
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+import torch
 
 
 def tf_data_set_from_ground_truth_data(ground_truth_data, random_seed):
@@ -33,6 +34,24 @@ def tf_data_set_from_ground_truth_data(ground_truth_data, random_seed):
 
   return tf.data.Dataset.from_generator(
       generator, tf.float32, output_shapes=ground_truth_data.observation_shape)
+
+
+def torch_data_set_generator_from_ground_truth_data(ground_truth_data, random_seed):
+  dataset = TorchIterableDataset(ground_truth_data, random_seed)
+
+  return dataset
+
+class TorchIterableDataset(torch.utils.data.IterableDataset):
+  def __init__(self, ground_truth_data, random_seed):
+    self.random_state = np.random.RandomState(random_seed)
+    self.ground_truth_data = ground_truth_data
+
+  def __iter__(self):
+    while True:
+      yield self.ground_truth_data.sample_observations(1, self.random_state)[0]
+
+  def __len__(self):
+    return np.prod(self.ground_truth_data.factor_sizes)
 
 
 class SplitDiscreteStateSpace(object):
