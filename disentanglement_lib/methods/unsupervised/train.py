@@ -31,6 +31,7 @@ import gin.tf
 import sys
 from shutil import copyfile
 from torch.optim import Adam
+from tensorflow.contrib import tpu as contrib_tpu
 
 from os import path
 
@@ -141,11 +142,11 @@ def train(model_dir,
   # We create a TPUEstimator based on the provided model. This is primarily so
   # that we could switch to TPU training in the future. For now, we train
   # locally on GPUs.
-  run_config = tf.contrib.tpu.RunConfig(
+  run_config = contrib_tpu.RunConfig(
       tf_random_seed=random_seed,
       keep_checkpoint_max=1,
-      tpu_config=tf.contrib.tpu.TPUConfig(iterations_per_loop=500))
-  tpu_estimator = tf.contrib.tpu.TPUEstimator(
+      tpu_config=contrib_tpu.TPUConfig(iterations_per_loop=500))
+  tpu_estimator = contrib_tpu.TPUEstimator(
       use_tpu=False,
       model_fn=model.model_fn,
       model_dir=os.path.join(model_dir, "tf_checkpoint"),

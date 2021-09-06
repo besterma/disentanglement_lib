@@ -26,10 +26,12 @@ import gin.tf
 
 @gin.configurable(
     "mig",
-    blacklist=["ground_truth_data", "representation_function", "random_state"])
+    blacklist=["ground_truth_data", "representation_function", "random_state",
+               "artifact_dir"])
 def compute_mig(ground_truth_data,
                 representation_function,
                 random_state,
+                artifact_dir=None,
                 num_train=gin.REQUIRED,
                 batch_size=16): #FIXME: somehow solve batch size issue
   """Computes the mutual information gap.
@@ -39,12 +41,14 @@ def compute_mig(ground_truth_data,
     representation_function: Function that takes observations as input and
       outputs a dim_representation sized representation for each observation.
     random_state: Numpy random state used for randomness.
+    artifact_dir: Optional path to directory where artifacts can be saved.
     num_train: Number of points used for training.
     batch_size: Batch size for sampling.
 
   Returns:
     Dict with average mutual information gap.
   """
+  del artifact_dir
   logging.info("Generating training set.")
   mus_train, ys_train = utils.generate_batch_factor_code(
       ground_truth_data, representation_function, num_train,
@@ -68,3 +72,26 @@ def _compute_mig(mus_train, ys_train):
   return score_dict
 
 
+@gin.configurable(
+    "mig_validation",
+    blacklist=["observations", "labels", "representation_function"])
+def compute_mig_on_fixed_data(observations, labels, representation_function,
+                              batch_size=100):
+  """Computes the MIG scores on the fixed set of observations and labels.
+
+  Args:
+    observations: Observations on which to compute the score. Observations have
+      shape (num_observations, 64, 64, num_channels).
+    labels: Observed factors of variations.
+    representation_function: Function that takes observations as input and
+      outputs a dim_representation sized representation for each observation.
+    batch_size: Batch size used to compute the representation.
+
+  Returns:
+    MIG computed on the provided observations and labels.
+  """
+  mus = utils.obtain_representation(observations, representation_function,
+                                    batch_size)
+  assert labels.shape[1] == observations.shape[0], "Wrong labels shape."
+  assert mus.shape[1] == observations.shape[0], "Wrong representation shape."
+  return _compute_mig(mus, labels)
