@@ -17,7 +17,11 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+from typing import Callable
+
 import numpy as np
+import numpy.typing as npt
 from six.moves import range
 import sklearn
 from sklearn import ensemble
@@ -61,6 +65,38 @@ def generate_batch_factor_code(ground_truth_data, representation_function,
     return np.transpose(representations), np.transpose(factors)
 
 
+def generate_batch_images(representations: npt.ArrayLike, decoder: Callable,
+                          random_state: np.random.RandomState, batch_size: int):
+    """Decode latent representations to images.
+
+    Args:
+        representations: (num_codes, num_points)-np array.
+        decoder: Function that takes representations as input
+                    and outputs images
+        random_state: Numpy random state used for randomness.
+        batch_size: Batchsize to generate images.
+
+    Returns:
+        images: (num_points, x, y, channels)-np array
+    """
+    images = None
+    i = 0
+    num_points = representations.shape[0]
+    i = 0
+    while i < num_points:
+        num_points_iter = min(num_points - i, batch_size)
+        if i == 0:
+            images = decoder(representations[:, i:i+num_points_iter])
+        else:
+            images = np.stack((images,
+                               decoder(representations[:, i:i+num_points_iter])),
+                              0)
+        i += num_points_iter
+    return images
+
+
+
+
 def generate_batch_factor_code_pytorch(data, labels, representation_function,
                                        num_points, random_state, batch_size):
     """Sample a single training sample based on a mini-batch of data and the corresponding labels
@@ -81,7 +117,7 @@ def generate_batch_factor_code_pytorch(data, labels, representation_function,
     representations = None
     factors = None
     i = 0
-    indices = random_state.choice(range(len(data)), size=(num_points, ), replace=False)
+    indices = random_state.choice(range(len(data)), size=(num_points, ), replace=len(data)<num_points)
     if len(labels.shape) == 1:
         labels = np.expand_dims(labels, -1)
 
