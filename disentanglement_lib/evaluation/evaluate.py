@@ -31,6 +31,7 @@ from disentanglement_lib.evaluation.metrics import factor_vae  # pylint: disable
 from disentanglement_lib.evaluation.metrics import fairness  # pylint: disable=unused-import
 from disentanglement_lib.evaluation.metrics import irs  # pylint: disable=unused-import
 from disentanglement_lib.evaluation.metrics import mig  # pylint: disable=unused-import
+from disentanglement_lib.evaluation.metrics import stability  # pylint: disable=unused-import
 from disentanglement_lib.evaluation.metrics import modularity_explicitness  # pylint: disable=unused-import
 from disentanglement_lib.evaluation.metrics import reduced_downstream_task  # pylint: disable=unused-import
 from disentanglement_lib.evaluation.metrics import sap_score  # pylint: disable=unused-import
@@ -41,6 +42,7 @@ from disentanglement_lib.utils import results
 import numpy as np
 import tensorflow.compat.v1 as tf
 import tensorflow_hub as hub
+from scipy import stats
 
 import gin.tf
 
@@ -82,6 +84,7 @@ def evaluate(model_dir,
              overwrite=False,
              evaluation_fn=gin.REQUIRED,
              random_seed=gin.REQUIRED,
+             unsupervised=False,
              name=""):
   """Loads a representation TFHub module and computes disentanglement metrics.
 
@@ -93,6 +96,7 @@ def evaluate(model_dir,
     evaluation_fn: Function used to evaluate the representation (see metrics/
       for examples).
     random_seed: Integer with random seed used for training.
+    unsupervised: Flag to tell if evaluation_fn is unsupervised and needs decoder as input too
     name: Optional string with name of the metric (can be used to name metrics).
   """
   # Delete the output directory if it already exists.
@@ -124,7 +128,7 @@ def evaluate(model_dir,
           "'", ""))
   dataset = named_data.get_named_ground_truth_data()
 
-  if(pytorch):
+  if pytorch:
     import sys
     import torch
     from beta_tcvae.vae_quant import VAE
@@ -148,42 +152,81 @@ def evaluate(model_dir,
 
       return zs_params[:, :, 0].cpu().detach().numpy()  # mean
       # return zs.cpu().numpy()                # if we want a sample from the distribution
-
-    # Computes scores of the representation based on the evaluation_fn.
-    results_dict = evaluation_fn(
-      dataset,
-      _representation_function,
-      random_state=np.random.RandomState(random_seed))
+    if unsupervised:
+      def _decoder(zs):
+        """Computes output image for given representation vector"""
+        xs, xs_params = model.decode(zs)
+        return np.moveaxis(xs_params, 1, 3)
+      results_dict = evaluation_fn(
+        dataset,
+        _representation_function,
+        _decoder,
+        random_state=np.random.RandomState(random_seed)
+      )
+    else:
+      # Computes scores of the representation based on the evaluation_fn.
+      results_dict = evaluation_fn(
+        dataset,
+        _representation_function,
+        random_state=np.random.RandomState(random_seed))
 
   else:
     # Path to TFHub module of previously trained representation.
     module_path = os.path.join(model_dir, "tfhub")
     with hub.eval_function_for_module(module_path) as f:
 
-      def _representation_function(x):
-        """Computes representation vector for input images."""
-        output = f(dict(images=x), signature="representation", as_dict=True)
-        return np.array(output["default"])
 
-      # Computes scores of the representation based on the evaluation_fn.
-      if _has_kwarg_or_kwargs(evaluation_fn, "artifact_dir"):
-        artifact_dir = os.path.join(model_dir, "artifacts", name)
+      if unsupervised:
+        def _encoder(x):
+          """Computes representation vector for input images."""
+          output_sampled = f(dict(images=x), signature="gaussian_encoder", as_dict=True)
+          return np.array(output_sampled["mean"]), np.array(output_sampled["logvar"])
+
+        def sigmoid(x):
+          return stats.logistic.cdf(x)
+
+        def _decoder(latent_vectors):
+          output = f(
+            dict(latent_vectors=latent_vectors),
+            signature="decoder",
+            as_dict=True)
+          return sigmoid(np.array(output["images"]))  # for some reason we need the activation function here
+
+        def _reconstruct(x):
+            output = f(dict(images=x), signature="reconstructions", as_dict=True)
+            return sigmoid(np.array(output["images"]))
+
         results_dict = evaluation_fn(
-            dataset,
-            _representation_function,
-            random_state=np.random.RandomState(random_seed),
-            artifact_dir=artifact_dir)
+          dataset,
+          _encoder,
+          _decoder,
+          _reconstruct,
+          random_state=np.random.RandomState(random_seed)
+        )
       else:
-        # Legacy code path to allow for old evaluation metrics.
-        warnings.warn(
-            "Evaluation function does not appear to accept an"
-            " `artifact_dir` argument. This may not be compatible with "
-            "future versions.", DeprecationWarning)
+        def _representation_function(x):
+          """Computes representation vector for input images."""
+          output = f(dict(images=x), signature="representation", as_dict=True)
+          return np.array(output["default"])
+        # Computes scores of the representation based on the evaluation_fn.
+        if _has_kwarg_or_kwargs(evaluation_fn, "artifact_dir"):
+          artifact_dir = os.path.join(model_dir, "artifacts", name)
+          results_dict = evaluation_fn(
+              dataset,
+              _representation_function,
+              random_state=np.random.RandomState(random_seed),
+              artifact_dir=artifact_dir)
+        else:
+          # Legacy code path to allow for old evaluation metrics.
+          warnings.warn(
+              "Evaluation function does not appear to accept an"
+              " `artifact_dir` argument. This may not be compatible with "
+              "future versions.", DeprecationWarning)
 
-        results_dict = evaluation_fn(
-           dataset,
-          _representation_function,
-          random_state=np.random.RandomState(random_seed))
+          results_dict = evaluation_fn(
+             dataset,
+             _representation_function,
+             random_state=np.random.RandomState(random_seed))
 
   # Save the results (and all previous results in the pipeline) on disk.
   original_results_dir = os.path.join(model_dir, "results")
