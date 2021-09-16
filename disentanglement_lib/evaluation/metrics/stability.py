@@ -77,10 +77,11 @@ def compute_stability(ground_truth_data,
             reconstructions, _ = encode(images)  # just us the mean, TODO later check if sampled is better/different
         return reconstructions
 
-    def reconstruct_with_fixed(images, fixed_latent_id):
-        latents = encode(images)
-        latents[:, fixed_latent_id] = np.zeros((latents.shape[0], 1))
-        return decode(latents)
+    def reconstruct_with_fixed(images, fixed_latent_ids):
+        means, logvars = encode(images)
+        for i in fixed_latent_ids:
+            means[:, i] = np.zeros((means.shape[0]))
+        return decode(means)
 
     def compute_gaussian_kl(z_mean, z_logvar):
         return np.mean(
@@ -108,24 +109,45 @@ def compute_stability(ground_truth_data,
         reconstructed_means[i * batch_size: (i + 1) * batch_size] = reconstructed_mean
     kl_divs = compute_gaussian_kl(means, logvars)
     active = [i for i in range(z_dim) if kl_divs[i] > 0.01]
+    inactive = [i for i in range(z_dim) if kl_divs[i] <= 0.01]
     n_active = len(active)
+
+    print("Per latent variance")
+    reconstruction_losses_fixed = np.zeros((z_dim, int(N/batch_size)))
+    for i in range(z_dim):
+        for j in range(int(N/batch_size)):
+            images = ground_truth_data.sample_observations(batch_size, random_state)
+            reconstructed = reconstruct_with_fixed(images, [i])
+            reconstruction_losses_fixed[i, j] = square_loss(images, reconstructed)
+    reconstruction_losses_per_latent = np.mean(reconstruction_losses_fixed, axis=1)
+
+    rl_per_latent_variance = np.var(reconstruction_losses_per_latent[active])
+    reconstruction_losses_zeroed = np.zeros(int(N/batch_size))
+    for i in range(int(N / batch_size)):
+        images = ground_truth_data.sample_observations(batch_size, random_state)
+        reconstructed = reconstruct_with_fixed(images, inactive)
+        reconstruction_losses_zeroed[i] = square_loss(images, reconstructed)
+
+    print("Robustness")
     individual_scores = np.zeros(n_active)
+    with nullcontext() if device == torch.device("cpu") else device:
+        num_samples = num_samples_swipe - (num_samples_swipe % batch_size)
+        N = num_samples * len(active)
+        qz_params_reconstructed = np.zeros((N, z_dim))
+        qz_params_original = np.zeros((N, z_dim))
+        for i, n in enumerate(active):
+            random_code = np.zeros((num_samples, z_dim))
+            swipe = random_state.choice(means[:, n], size=(num_samples,), replace=False)
+            random_code[:, n] = swipe
+            qz_param = reconstruct_latents(random_code)
+            individual_scores[i] = square_loss(random_code, qz_param)
+            qz_params_reconstructed[i * num_samples:(i + 1) * num_samples] = qz_param
+            qz_params_original[i * num_samples:(i + 1) * num_samples, active] = random_code[:, active]
 
-    for i, n in enumerate(active):
-        mask = np.zeros(z_dim, dtype=bool)
-        mask[active] = True
-        mask[n] = False
-        split = int(0.66 * N)
-        importance_matrix, train_err, test_err = compute_importance_gbtregressor(
-            means[:split, mask], means[:split, n],
-            means[split:, mask], means[split:, n])
-        individual_scores[i] = test_err
-
-    reconstruction_loss = np.mean(reconstruction_losses)
     score_dict = {}
-    score_dict["stability_metric"] = np.average(individual_scores, weights=kl_divs[active])
-    score_dict["robustness"] = np.mean(individual_scores)
-    score_dict["reconstruction_loss"] = reconstruction_loss
+    score_dict["stability_metric"] = rl_per_latent_variance
+    score_dict["robustness"] = np.average(individual_scores, weights=kl_divs[active])
+    score_dict["reconstruction_loss"] = np.mean(reconstruction_losses_zeroed)
     return score_dict
 
 def compute_importance_gbtregressor(x_train, y_train, x_test, y_test):
