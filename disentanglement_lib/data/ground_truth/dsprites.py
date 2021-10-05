@@ -63,6 +63,7 @@ class DSprites(ground_truth_data.GroundTruthData):
       self.images = np.array(data["imgs"])
       self.factor_sizes = np.array(
           data["metadata"][()]["latents_sizes"], dtype=np.int64)
+      self.labels = np.array(data["latents_classes"], dtype=np.uint8)
     self.full_factor_sizes = [1, 3, 6, 40, 32, 32]
     self.factor_bases = np.prod(self.factor_sizes) / np.cumprod(
         self.factor_sizes)
@@ -97,6 +98,15 @@ class DSprites(ground_truth_data.GroundTruthData):
 
   def _sample_factor(self, i, num, random_state):
     return random_state.randint(self.factor_sizes[i], size=num)
+
+
+class ReducedDSprites(DSprites):
+
+    def __init__(self, latent_factor_indices=None, part_to_keep=0, train=True, seed=0):
+        DSprites.__init__(self, latent_factor_indices)
+        self.labels = self.labels[:, latent_factor_indices]
+        random_state = np.random.RandomState(seed)
+        indices = random_state.randint(self.images.shape[0], size=int(self.images.shape[0] * part_to_keep))
 
 
 class ColorDSprites(DSprites):

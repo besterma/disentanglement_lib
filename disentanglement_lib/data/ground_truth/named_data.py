@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 from disentanglement_lib.data.ground_truth import cars3d
 from disentanglement_lib.data.ground_truth import dsprites
+from disentanglement_lib.data.ground_truth import dsprites_cont
 from disentanglement_lib.data.ground_truth import dummy_data
 from disentanglement_lib.data.ground_truth import mpi3d
 from disentanglement_lib.data.ground_truth import norb
@@ -41,6 +42,10 @@ def get_named_ground_truth_data(name):
     return dsprites.DSprites([1, 2, 3, 4, 5])
   elif name == "dsprites_noshape":
     return dsprites.DSprites([2, 3, 4, 5])
+  elif name == "dsprites_cont":
+    return dsprites_cont.DSpritesCont()
+  elif name == "reduced_dsprites_cont":
+    return dsprites_cont.ReducedDSpritesCont()
   elif name == "color_dsprites":
     return dsprites.ColorDSprites([1, 2, 3, 4, 5])
   elif name == "noisy_dsprites":
