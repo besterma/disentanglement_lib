@@ -31,8 +31,12 @@ import gin.tf
 import sys
 from shutil import copyfile
 from torch.optim import Adam
-from tensorflow.contrib import tpu as contrib_tpu
 
+tf.logging.set_verbosity(tf.logging.WARN)
+if tf.__version__ >= '2':
+    from tensorflow import tpu as contrib_tpu
+else:
+    from tensorflow.contrib import tpu as contrib_tpu
 from os import path
 
 sys.path.append(path.expanduser('~/Python/PopulationBasedTraining'))
