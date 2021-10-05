@@ -16,6 +16,6 @@
 evaluation.evaluation_fn = @downstream_task
 dataset.name="auto"
 evaluation.random_seed = 0
-downstream_task.num_train=[10, 100,1000,10000]
+downstream_task.num_train=[100,1000,10000]
 downstream_task.num_test=5000
 predictor.predictor_fn = @logistic_regression_cv

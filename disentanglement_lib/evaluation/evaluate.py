@@ -38,6 +38,7 @@ from disentanglement_lib.evaluation.metrics import sap_score  # pylint: disable=
 from disentanglement_lib.evaluation.metrics import strong_downstream_task  # pylint: disable=unused-import
 from disentanglement_lib.evaluation.metrics import unified_scores  # pylint: disable=unused-import
 from disentanglement_lib.evaluation.metrics import unsupervised_metrics  # pylint: disable=unused-import
+from disentanglement_lib.evaluation.metrics import discriminator  # pylint: disable=unused-import
 from disentanglement_lib.utils import results
 import numpy as np
 import tensorflow.compat.v1 as tf
@@ -52,7 +53,7 @@ def evaluate_with_gin(model_dir,
                       overwrite=False,
                       gin_config_files=None,
                       gin_bindings=None,
-                      pytorch=True):
+                      pytorch=False):
   """Evaluate a representation based on the provided gin configuration.
 
   This function will set the provided gin bindings, call the evaluate()
@@ -112,20 +113,39 @@ def evaluate(model_dir,
   # Automatically set the proper data set if necessary. We replace the active
   # gin config as this will lead to a valid gin config file where the data set
   # is present.
-  if gin.query_parameter("dataset.name") == "auto":
+
     # Obtain the dataset name from the gin config of the previous step.
 
     #edited for pytorch case
-    if(pytorch):
-      gin_config_file = os.path.join(model_dir, "results", "gin",
-                                     "train.gin")
-    else:
-      gin_config_file = os.path.join(model_dir, "results", "gin",
-                                     "postprocess.gin")
-    gin_dict = results.gin_dict(gin_config_file)
-    with gin.unlock_config():
+
+  gin_config_file = os.path.join(model_dir, "results", "gin",
+                                 "train.gin")
+  gin_dict = results.gin_dict(gin_config_file)
+  with gin.unlock_config():
+    if gin.query_parameter("dataset.name") == "auto":
       gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
           "'", ""))
+    if gin.query_parameter("dataset.name") == "reduced_dsprites_cont":
+      gin.bind_parameter("reduced_dsprites_cont.seed",
+                         int(gin_dict["reduced_dsprites_cont.seed"].replace(
+                         "'", "")))
+      gin.bind_parameter("reduced_dsprites_cont.train_split",
+                         float(gin_dict["reduced_dsprites_cont.train_split"].replace(
+                           "'", "")))
+    if pytorch:
+      gin.bind_parameter("vae_quant.VAE.z_dim", gin_dict["vae_quant.VAE.z_dim"].replace(
+        "'", ""))
+      gin.bind_parameter("vae_quant.VAE.use_cuda", str(tf.test.is_gpu_available()))
+      gin.bind_parameter("vae_quant.VAE.include_mutinfo", gin_dict["vae_quant.VAE.include_mutinfo"].replace(
+        "'", ""))
+      gin.bind_parameter("vae_quant.VAE.tcvae", gin_dict["vae_quant.VAE.tcvae"].replace(
+        "'", ""))
+      gin.bind_parameter("vae_quant.VAE.conv", gin_dict["vae_quant.VAE.conv"].replace(
+        "'", ""))
+      gin.bind_parameter("vae_quant.VAE.mss", gin_dict["vae_quant.VAE.mss"].replace(
+        "'", ""))
+      gin.bind_parameter("vae_quant.VAE.num_channels", gin_dict["vae_quant.VAE.num_channels"].replace(
+        "'", ""))
   dataset = named_data.get_named_ground_truth_data()
 
   if pytorch:

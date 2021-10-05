@@ -38,13 +38,13 @@ def visualize_with_gin(model_dir,
                       overwrite=False,
                       gin_config_files=None,
                       gin_bindings=None,
-                      pytorch=True):
+                      pytorch=False):
   if gin_config_files is None:
     gin_config_files = []
   if gin_bindings is None:
     gin_bindings = []
   gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
-  visualize(model_dir, output_dir, pytorch, overwrite)
+  visualize(model_dir, output_dir, overwrite, pytorch=pytorch)
   gin.clear_config()
 
 def visualize(model_dir,
@@ -54,7 +54,7 @@ def visualize(model_dir,
               num_frames=20,
               fps=10,
               num_points_irs=10000,
-              pytorch=True):
+              pytorch=False):
   """Takes trained model from model_dir and visualizes it in output_dir.
 
   Args:
@@ -84,24 +84,25 @@ def visualize(model_dir,
     # Obtain the dataset name from the gin config of the previous step.
 
     #edited for pytorch case
-  if(pytorch):
+  if pytorch:
     gin_config_file = os.path.join(model_dir, "results", "gin",
                                    "train.gin")
   else:
     gin_config_file = os.path.join(model_dir, "results", "gin",
-                                   "postprocess.gin")
+                                   "train.gin")
   gin_dict = results.gin_dict(gin_config_file)
   with gin.unlock_config():
     gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
         "'", ""))
-    gin.bind_parameter("VAE.conv", bool(gin_dict["VAE.conv"].replace(
-      "'", "")))
-    gin.bind_parameter("VAE.num_channels", int(gin_dict["VAE.num_channels"].replace(
-      "'", "")))
-    gin.bind_parameter("VAE.use_cuda", bool(gin_dict["VAE.use_cuda"].replace(
-      "'", "")))
-    gin.bind_parameter("VAE.z_dim", int(gin_dict["VAE.z_dim"].replace(
-      "'", "")))
+    if pytorch:
+      gin.bind_parameter("VAE.conv", bool(gin_dict["VAE.conv"].replace(
+        "'", "")))
+      gin.bind_parameter("VAE.num_channels", int(gin_dict["VAE.num_channels"].replace(
+        "'", "")))
+      gin.bind_parameter("VAE.use_cuda", bool(gin_dict["VAE.use_cuda"].replace(
+        "'", "")))
+      gin.bind_parameter("VAE.z_dim", int(gin_dict["VAE.z_dim"].replace(
+        "'", "")))
 
   # dataset = named_data.get_named_ground_truth_data()
 
@@ -120,14 +121,15 @@ def visualize(model_dir,
   if(not pytorch):
 
     # Automatically infer the activation function from gin config.
-    activation_str = gin_dict["reconstruction_loss.activation"]
+    activation_str = gin_dict.get("reconstruction_loss.activation", "'logits'")
+    #activation_str = gin_dict["reconstruction_loss.activation"]
     if activation_str == "'logits'":
       activation = sigmoid
     elif activation_str == "'tanh'":
       activation = tanh
     else:
       raise ValueError(
-        "Activation function  could not be infered from gin config.")
+        "Activation function  could not be inferred from gin config.")
 
 
     with hub.eval_function_for_module(module_path) as f:
@@ -244,8 +246,7 @@ def visualize(model_dir,
         visualize_util.save_animation(np.array(images), filename, fps)
 
       # Interventional effects visualization.
-      factors = dataset.sample_factors(num_points_irs, random_state)
-      obs = dataset.sample_observations_from_factors(factors, random_state)
+      factors, obs = dataset.sample(num_points_irs, random_state)
       latents = f(
           dict(images=obs), signature="gaussian_encoder", as_dict=True)["mean"]
       results_dir = os.path.join(output_dir, "interventional_effects")

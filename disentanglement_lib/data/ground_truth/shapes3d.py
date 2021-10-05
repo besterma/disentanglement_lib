@@ -48,8 +48,8 @@ class Shapes3D(ground_truth_data.GroundTruthData):
 
   def __init__(self):
     with h5py.File(SHAPES3D_PATH, 'r') as dataset:
-      images = dataset['images'].value
-      labels = dataset['labels'].value
+      images = dataset['images'][()]
+      labels = dataset['labels'][()]
 
     n_samples = images.shape[0]
     self.images = images.reshape([n_samples, 64, 64, 3])

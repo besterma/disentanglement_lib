@@ -43,7 +43,8 @@ def main(unused_argv):
   else:
     model_config_file = []
   train.train_with_gin(FLAGS.model_dir, FLAGS.overwrite,
-                       FLAGS.gin_config + model_config_file, FLAGS.gin_bindings)
+                       FLAGS.gin_config + model_config_file, FLAGS.gin_bindings,
+                       pytorch=False)
 
 
 if __name__ == "__main__":
