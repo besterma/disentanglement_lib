@@ -97,6 +97,7 @@ def compute_stability(ground_truth_data,
     logvars = np.zeros((N, z_dim))
     reconstructed_means = np.zeros((N, z_dim))
     reconstruction_losses = np.zeros(int(N / batch_size))
+    hessian_penalties = np.zeros(int(N / batch_size))
     print("Reconstruction loss")
     for i in range(int(N / batch_size)):
         images = ground_truth_data.sample_observations(batch_size, random_state)
@@ -107,21 +108,25 @@ def compute_stability(ground_truth_data,
         logvars[i * batch_size: (i + 1) * batch_size] = logvar
         reconstructed_mean = reconstruct_latents(mean)
         reconstructed_means[i * batch_size: (i + 1) * batch_size] = reconstructed_mean
+        hessian_penalties[i] = hessian_penalty(reconstruct_latents, mean, 2)
+
+
     kl_divs = compute_gaussian_kl(means, logvars)
     active = [i for i in range(z_dim) if kl_divs[i] > 0.01]
     inactive = [i for i in range(z_dim) if kl_divs[i] <= 0.01]
     n_active = len(active)
 
     print("Per latent variance")
-    reconstruction_losses_fixed = np.zeros((z_dim, int(N/batch_size)))
-    for i in range(z_dim):
+    reconstruction_losses_fixed = np.zeros((n_active, int(N/batch_size)))
+    for i, n in enumerate(active):
         for j in range(int(N/batch_size)):
             images = ground_truth_data.sample_observations(batch_size, random_state)
-            reconstructed = reconstruct_with_fixed(images, [i])
+            reconstructed = reconstruct_with_fixed(images, [n])
             reconstruction_losses_fixed[i, j] = square_loss(images, reconstructed)
     reconstruction_losses_per_latent = np.mean(reconstruction_losses_fixed, axis=1)
 
-    rl_per_latent_variance = np.var(reconstruction_losses_per_latent[active])
+
+    rl_per_latent_variance = np.var(reconstruction_losses_per_latent)
     reconstruction_losses_zeroed = np.zeros(int(N/batch_size))
     for i in range(int(N / batch_size)):
         images = ground_truth_data.sample_observations(batch_size, random_state)
@@ -144,10 +149,33 @@ def compute_stability(ground_truth_data,
             qz_params_reconstructed[i * num_samples:(i + 1) * num_samples] = qz_param
             qz_params_original[i * num_samples:(i + 1) * num_samples, active] = random_code[:, active]
 
+    rl_mean = np.average(reconstruction_losses_per_latent, weights=1/individual_scores)
+    np.average((reconstruction_losses_per_latent - rl_mean)**2, weights=1/individual_scores)
+
+    reconstruction_losses_train = np.zeros(int(N / batch_size))
+    print("Reconstruction loss train")
+    ground_truth_data.make_train()
+    for i in range(int(N / batch_size)):
+        images = ground_truth_data.sample_observations(batch_size, random_state)
+        reconstructed = reconstruct(images)
+        reconstruction_losses_train[i] = square_loss(images, reconstructed)
+
+    reconstruction_losses_test = np.zeros(int(N / batch_size))
+    print("Reconstruction loss test")
+    ground_truth_data.make_test()
+    for i in range(int(N / batch_size)):
+        images = ground_truth_data.sample_observations(batch_size, random_state)
+        reconstructed = reconstruct(images)
+        reconstruction_losses_test[i] = square_loss(images, reconstructed)
+
+
+    print(f"hessian penalty: {hessian_penalties.max()}")
     score_dict = {}
     score_dict["stability_metric"] = rl_per_latent_variance
     score_dict["robustness"] = np.average(individual_scores, weights=kl_divs[active])
     score_dict["reconstruction_loss"] = np.mean(reconstruction_losses_zeroed)
+    score_dict["reconstruction_loss_test"] = np.mean(reconstruction_losses_test)
+    score_dict["reconstruction_loss_train"] = np.mean(reconstruction_losses_train)
     return score_dict
 
 def compute_importance_gbtregressor(x_train, y_train, x_test, y_test):
@@ -159,6 +187,30 @@ def compute_importance_gbtregressor(x_train, y_train, x_test, y_test):
     test_loss = np.max((0, model.score(x_test, y_test)))
     return importance_matrix, np.mean(train_loss), np.mean(test_loss)
 
+def hessian_penalty(G, z, k=2, epsilon=0.1, reduction=np.max, G_z=None, **G_kwargs):
+    """
+    Official NumPy Hessian Penalty implementation (single-layer).
+
+    :param G: Function that maps input z to NumPy array
+    :param z: Input to G that the Hessian Penalty will be computed with respect to
+    :param k: Number of Hessian directions to sample (must be >= 2)
+    :param epsilon: Amount to blur G before estimating Hessian (must be > 0)
+    :param reduction: Many-to-one function to reduce each pixel/neuron's individual hessian penalty into a final loss
+    :param G_z: [Optional small speed-up] If you have already computed G(z, **G_kwargs) for the current training
+                iteration, then you can provide it here to reduce the number of forward passes of this method by 1
+    :param G_kwargs: Additional inputs to G besides the z vector. For example, in BigGAN you
+                     would pass the class label into this function via y=<class_label_tensor>
+
+    :return: A differentiable scalar (the hessian penalty)
+    """
+    if G_z is None:
+        G_z = G(z, **G_kwargs)
+    xs = np.random.choice([-epsilon, epsilon], size=[k, *z.shape], replace=True)  # Sample from Rademacher distribution
+    second_orders = [G(z + x, **G_kwargs) - 2 * G_z + G(z - x, **G_kwargs) for x in xs]
+    second_orders = np.stack(second_orders) / (epsilon ** 2)  # Shape = (k, *G(z).shape)
+    per_neuron_loss = np.var(second_orders, axis=0, ddof=1)  # Compute unbiased variance over k Hessian directions
+    loss = reduction(per_neuron_loss)
+    return loss
 
 def similarity_score_spearman(a_samples, b_samples, i):
     z_dim = b_samples.shape[1]
