@@ -120,7 +120,7 @@ def generate_batch_factor_code_pytorch(data, labels, representation_function,
     indices = random_state.choice(range(len(data)), size=(num_points, ), replace=len(data)<num_points)
     if len(labels.shape) == 1:
         labels = np.expand_dims(labels, -1)
-
+    print("Start generating batch factor code")
     while i < num_points:
         num_points_iter = min(num_points - i, batch_size)
         current_factors = labels[indices[i:i + num_points_iter]]
@@ -134,6 +134,7 @@ def generate_batch_factor_code_pytorch(data, labels, representation_function,
                                          representation_function(
                                              current_observations)))
         i += num_points_iter
+        print(f"Currently at {num_points_iter}")
     return np.transpose(representations), np.transpose(factors)
 
 

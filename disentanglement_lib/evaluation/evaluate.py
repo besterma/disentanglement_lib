@@ -44,6 +44,7 @@ import numpy as np
 import tensorflow.compat.v1 as tf
 import tensorflow_hub as hub
 from scipy import stats
+device = 0 if tf.test.is_gpu_available() else "cpu"
 
 import gin.tf
 
@@ -53,7 +54,7 @@ def evaluate_with_gin(model_dir,
                       overwrite=False,
                       gin_config_files=None,
                       gin_bindings=None,
-                      pytorch=False):
+                      type="tf"):
   """Evaluate a representation based on the provided gin configuration.
 
   This function will set the provided gin bindings, call the evaluate()
@@ -73,7 +74,7 @@ def evaluate_with_gin(model_dir,
   if gin_bindings is None:
     gin_bindings = []
   gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
-  evaluate(model_dir, output_dir, pytorch, overwrite)
+  evaluate(model_dir, output_dir, type, overwrite)
   gin.clear_config()
 
 
@@ -81,7 +82,7 @@ def evaluate_with_gin(model_dir,
     "evaluation", blacklist=["model_dir", "output_dir", "overwrite"])
 def evaluate(model_dir,
              output_dir,
-             pytorch,
+             type,
              overwrite=False,
              evaluation_fn=gin.REQUIRED,
              random_seed=gin.REQUIRED,
@@ -132,63 +133,127 @@ def evaluate(model_dir,
       gin.bind_parameter("reduced_dsprites_cont.train_split",
                          float(gin_dict["reduced_dsprites_cont.train_split"].replace(
                            "'", "")))
-    if pytorch:
-      gin.bind_parameter("vae_quant.VAE.z_dim", gin_dict["vae_quant.VAE.z_dim"].replace(
-        "'", ""))
-      gin.bind_parameter("vae_quant.VAE.use_cuda", str(tf.test.is_gpu_available()))
-      gin.bind_parameter("vae_quant.VAE.include_mutinfo", gin_dict["vae_quant.VAE.include_mutinfo"].replace(
-        "'", ""))
-      gin.bind_parameter("vae_quant.VAE.tcvae", gin_dict["vae_quant.VAE.tcvae"].replace(
-        "'", ""))
-      gin.bind_parameter("vae_quant.VAE.conv", gin_dict["vae_quant.VAE.conv"].replace(
-        "'", ""))
-      gin.bind_parameter("vae_quant.VAE.mss", gin_dict["vae_quant.VAE.mss"].replace(
-        "'", ""))
-      gin.bind_parameter("vae_quant.VAE.num_channels", gin_dict["vae_quant.VAE.num_channels"].replace(
-        "'", ""))
+  print("start loading dataset")
   dataset = named_data.get_named_ground_truth_data()
+  print("dataset loaded")
 
-  if pytorch:
-    import sys
+  if type == "pytorch":
+    module_path = os.path.join(model_dir, "tfhub")
+    gin_config_file = os.path.join(model_dir, "results", "gin",
+                                   "train.gin")
+    gin_dict = results.gin_dict(gin_config_file)
+    with gin.unlock_config():
+      z_dim = gin_dict["VAE.z_dim"].replace("'", "")
+      if "%" in z_dim:
+        z_dim = gin_dict["z_dim"].replace("'", "")
+        gin.bind_parameter("discriminator.z_dim", int(z_dim))
+      gin.bind_parameter("VAE.z_dim", int(z_dim))
+      gin.bind_parameter("VAE.use_cuda", bool(tf.test.is_gpu_available()))
+      gin.bind_parameter("VAE.include_mutinfo", bool(gin_dict["VAE.include_mutinfo"].replace(
+        "'", "")))
+      gin.bind_parameter("VAE.tcvae", bool(gin_dict["VAE.tcvae"].replace(
+        "'", "")))
+      gin.bind_parameter("VAE.conv", bool(gin_dict["VAE.conv"].replace(
+        "'", "")))
+      gin.bind_parameter("VAE.mss", bool(gin_dict["VAE.mss"].replace(
+        "'", "")))
+      gin.bind_parameter("VAE.num_channels", int(gin_dict["VAE.num_channels"].replace(
+        "'", "")))
     import torch
     from beta_tcvae.vae_quant import VAE
-    # Path to TFHub module of previously trained representation.
-    module_path = os.path.join(model_dir, "tfhub")
-    #TODO: get these inputs from gin files
-    model = VAE(device=0)
-    #TODO: here maybe general case for >4 GPUs
-    checkpoint = torch.load(module_path + "/model.pth",
-                            map_location={'cuda:3': 'cuda:0', 'cuda:2': 'cuda:0', 'cuda:1': 'cuda:0'})
+    model = VAE(device=device)
+    if device == 'cpu':
+      checkpoint = torch.load(module_path + "/model.pth",
+                              map_location={'cuda:3': 'cpu', 'cuda:2': 'cpu', 'cuda:1': 'cpu:0', 'cuda:0': 'cpu'})
+    else:
+      checkpoint = torch.load(module_path + "/model.pth",
+                              map_location={'cuda:3': 'cuda:0', 'cuda:2': 'cuda:0', 'cuda:1': 'cuda:0'})
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 
-    def _representation_function(x):
+    if unsupervised:
+      def _encode(x):
+        """Computes representation vector for input images."""
+
+        # change numpy array samples such that it is [batch, channels, x, y]
+        x = np.moveaxis(x, 3, 1)
+        x = torch.from_numpy(x).to(device)
+        zs, zs_params = model.encode(x)
+
+        return zs_params[:, :, 0].cpu().detach().numpy(), zs_params[:, :, 1].cpu().detach().numpy()  # mean
+        # return zs.cpu().numpy()                # if we want a sample from the distribution
+
+      def _decode(latent_vectors):
+        latent_vectors = torch.from_numpy(latent_vectors).to(device)
+        latent_vectors = latent_vectors.type(dtype=torch.float32)
+        xs, xs_params = model.decode(latent_vectors)
+        xs_params = xs_params.sigmoid().cpu().detach().numpy()
+        xs_params = np.moveaxis(xs_params, 1, 3)
+        return xs_params
+
+      def _reconstruct(x):
+        return _decode(_encode(x)[0])
+
+      results_dict = evaluation_fn(
+        dataset,
+        _encode,
+        _decode,
+        _reconstruct,
+        random_state=np.random.RandomState(random_seed)
+      )
+    else:
+      def _encode(x):
+        """Computes representation vector for input images."""
+
+        # change numpy array samples such that it is [batch, channels, x, y]
+        x = np.moveaxis(x, 3, 1)
+        x = torch.from_numpy(x).to(device)
+        zs, zs_params = model.encode(x)
+
+        return zs_params[:, :, 0].cpu().detach().numpy()
+        # return zs.cpu().numpy()                # if we want a sample from the distribution
+      # Computes scores of the representation based on the evaluation_fn.
+      results_dict = evaluation_fn(
+        dataset,
+        _encode,
+        random_state=np.random.RandomState(random_seed))
+
+  elif type == "aaae" or type == "bigaaae":
+    z_dim = gin_dict["VAE.z_dim"].replace("'", "")
+    if "%" in z_dim:
+      z_dim = gin_dict["z_dim"].replace("'", "")
+      gin.bind_parameter("discriminator.z_dim", int(z_dim))
+    num_channels = int(gin_dict["VAE.num_channels"].replace("'", ""))
+    z_dim = int(z_dim)
+
+    import torch
+    import aaae.dislibvae
+    # device = torch.cuda.device(0) if torch.cuda.is_available() else torch.device("cpu")
+    device = 'cuda:0' if torch.cuda.is_available() else "cpu"
+    if type == "aaae":
+      vae = aaae.dislibvae.BetaTCVAE(z_dim, num_channels, 1)
+    else:
+      vae = aaae.dislibvae.BigBetaTCVAE(z_dim, num_channels, 1)
+    checkpoint_vae = torch.load(os.path.join(model_dir, "model.pth"), map_location=device)
+    vae.load_state_dict(checkpoint_vae)
+    vae.to(device)
+    vae.eval()
+
+    def _encode(x):
       """Computes representation vector for input images."""
 
       # change numpy array samples such that it is [batch, channels, x, y]
       x = np.moveaxis(x, 3, 1)
-      x = torch.from_numpy(x).to(0)
-      zs, zs_params = model.encode(x)
+      x = torch.from_numpy(x).to(device)
 
-      return zs_params[:, :, 0].cpu().detach().numpy()  # mean
-      # return zs.cpu().numpy()                # if we want a sample from the distribution
-    if unsupervised:
-      def _decoder(zs):
-        """Computes output image for given representation vector"""
-        xs, xs_params = model.decode(zs)
-        return np.moveaxis(xs_params, 1, 3)
-      results_dict = evaluation_fn(
-        dataset,
-        _representation_function,
-        _decoder,
-        random_state=np.random.RandomState(random_seed)
-      )
-    else:
-      # Computes scores of the representation based on the evaluation_fn.
-      results_dict = evaluation_fn(
-        dataset,
-        _representation_function,
-        random_state=np.random.RandomState(random_seed))
+      mean, logvar = vae.encode(x)
+
+      return mean.cpu().detach().numpy()
+
+    results_dict = evaluation_fn(
+      dataset,
+      _encode,
+      random_state=np.random.RandomState(random_seed))
 
   else:
     # Path to TFHub module of previously trained representation.

@@ -65,7 +65,7 @@ class MPI3D(ground_truth_data.GroundTruthData):
       else:
         with tf.io.gfile.GFile(mpi3d_path, "rb") as f:
           data = np.load(f)
-      self.factor_sizes = [4, 4, 2, 3, 3, 40, 40]
+      self.factor_sizes = [6, 6, 2, 3, 3, 40, 40]
     elif mode == "mpi3d_realistic":
       mpi3d_path = os.path.join(
           os.environ.get("DISENTANGLEMENT_LIB_DATA", "."), "mpi3d_realistic",
@@ -77,7 +77,7 @@ class MPI3D(ground_truth_data.GroundTruthData):
       else:
         with tf.io.gfile.GFile(mpi3d_path, "rb") as f:
           data = np.load(f)
-      self.factor_sizes = [4, 4, 2, 3, 3, 40, 40]
+      self.factor_sizes = [6, 6, 2, 3, 3, 40, 40]
     elif mode == "mpi3d_real":
       mpi3d_path = os.path.join(
           os.environ.get("DISENTANGLEMENT_LIB_DATA", "."), "mpi3d_real",

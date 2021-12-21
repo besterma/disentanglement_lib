@@ -256,10 +256,11 @@ def visualize(model_dir,
     import sys
     import torch
     from beta_tcvae.vae_quant import VAE
-    model = VAE(device=0)
+    device = torch.device(0) if torch.cuda.is_available() else torch.device("cpu")
+    model = VAE(device=device)
     #TODO: here maybe general case for >4 GPUs
-    checkpoint = torch.load(module_path + "/model.pth",
-                            map_location={'cuda:3': 'cuda:0', 'cuda:2': 'cuda:0', 'cuda:1': 'cuda:0'})
+    checkpoint = torch.load(module_path + "/model.pth", map_location=device)
+                            #map_location={'cuda:3': 'cuda:0', 'cuda:2': 'cuda:0', 'cuda:1': 'cuda:0'})
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 
@@ -267,7 +268,7 @@ def visualize(model_dir,
 
     def _encoder(x):
       x = np.moveaxis(x, 3,1)
-      x = torch.from_numpy(x).to(0)
+      x = torch.from_numpy(x).to(device)
 
       zs, zs_params = model.encode(x)
       zs = zs.cpu().detach().numpy()
@@ -276,7 +277,7 @@ def visualize(model_dir,
       return zs, zs_params
 
     def _decoder(latent_vectors):
-      latent_vectors = torch.from_numpy(latent_vectors).to(0)
+      latent_vectors = torch.from_numpy(latent_vectors).to(device)
       latent_vectors = latent_vectors.type(dtype=torch.float32)
       xs, xs_params = model.decode(latent_vectors)
       xs_params = xs_params.sigmoid().cpu().detach().numpy()
@@ -288,7 +289,7 @@ def visualize(model_dir,
     # feed samples through pytorch model
 
     real_pics = dataset.sample_observations(num_pics, random_state)
-    x = torch.from_numpy(real_pics).to(0)
+    x = torch.from_numpy(real_pics).to(device)
     zs, zs_params = _encoder(real_pics)
     pics = _decoder(zs_params[:,:,0])
 
@@ -323,7 +324,7 @@ def visualize(model_dir,
 
     num_pics = 10
     real_pics = dataset.sample_observations(num_pics, random_state)
-    # pics = torch.from_numpy(real_pics).to(0)
+    # pics = torch.from_numpy(real_pics).to(device)
     zs, zs_params = _encoder(real_pics)
 
     means = zs_params[:,:,0]

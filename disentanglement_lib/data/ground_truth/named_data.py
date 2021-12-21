@@ -24,6 +24,7 @@ from disentanglement_lib.data.ground_truth import dummy_data
 from disentanglement_lib.data.ground_truth import mpi3d
 from disentanglement_lib.data.ground_truth import norb
 from disentanglement_lib.data.ground_truth import shapes3d
+from disentanglement_lib.data.ground_truth import numpy_array
 import gin.tf
 
 
@@ -64,7 +65,9 @@ def get_named_ground_truth_data(name):
     return mpi3d.MPI3D(mode="mpi3d_real")
   elif name == "shapes3d":
     return shapes3d.Shapes3D()
+  elif name == "numpy_array_data":
+    return numpy_array.NumpyArrayData()
   elif name == "dummy_data":
     return dummy_data.DummyData()
   else:
-    raise ValueError("Invalid data set name.")
+    raise ValueError("Invalid data set name. ", name)
