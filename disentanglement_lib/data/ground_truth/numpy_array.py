@@ -44,15 +44,17 @@ class NumpyArrayData(ground_truth_data.GroundTruthData):
   3 - position x (32 different values)
   4 - position y (32 different values)
   """
-  def __init__(self, data_array=None, data_array_path=None):
+  def __init__(self, data_array=None, labels_array=None, data_array_path=None):
     if data_array is None and data_array_path is None:
         raise ValueError("Either data_array or data_array_path must not be None")
     if data_array is not None:
         self.images = data_array
+        self.labels = labels_array
     else:
-        self.images = np.load(data_array_path)["images"].astype(np.float32) / 255.0
+        self.images = np.load(data_array_path)["images"]
+        self.images = np.moveaxis(self.images, 1, 3) # we assume input data in pytorch shape
+        self.labels = np.load(data_array_path)["labels"]
     self.data_shape = self.images.shape[-3:]
-    self.labels = None
     self.nr_images = self.images.shape[0]
 
 
@@ -74,20 +76,20 @@ class NumpyArrayData(ground_truth_data.GroundTruthData):
   def sample_observations_from_factors(self, factors, random_state):
       raise NotImplementedError()
 
-  def sample_observations_from_factors_no_color(self, factors, random_state):
-      raise NotImplementedError()
-
   def sample(self, num, random_state):
-      # Maybe support label array at some point?
-      raise NotImplementedError()
+    """Sample a batch of factors Y and observations X."""
+    """Factors: (num, num_labels), Images: (num, x, y, color)"""
+    indices = random_state.randint(self.nr_images, size=num)
+    imgs = self.images[indices].astype(np.float32) / 255.0
+    if imgs.shape == self.data_shape:
+        return np.expand_dims(self.labels[indices], axis=0),\
+               np.expand_dims(imgs, axis=0)
+    else:
+        return self.labels[indices], imgs
 
   def sample_observations(self, num, random_state):
       """Sample a batch of factors Y and observations X."""
-      indices = random_state.randint(self.nr_images, size=num)
-      if num == 1:
-          return np.expand_dims(self.images[indices], axis=3)
-      else:
-          return self.images[indices]
+      return self.sample(num, random_state)[1]
 
 
 
