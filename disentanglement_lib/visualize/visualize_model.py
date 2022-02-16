@@ -38,13 +38,13 @@ def visualize_with_gin(model_dir,
                       overwrite=False,
                       gin_config_files=None,
                       gin_bindings=None,
-                      pytorch=False):
+                      model_type="tf"):
   if gin_config_files is None:
     gin_config_files = []
   if gin_bindings is None:
     gin_bindings = []
   gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
-  visualize(model_dir, output_dir, overwrite, pytorch=pytorch)
+  visualize(model_dir, output_dir, overwrite, model_type=model_type)
   gin.clear_config()
 
 def visualize(model_dir,
@@ -54,7 +54,7 @@ def visualize(model_dir,
               num_frames=20,
               fps=10,
               num_points_irs=10000,
-              pytorch=False):
+              model_type="tf"):
   """Takes trained model from model_dir and visualizes it in output_dir.
 
   Args:
@@ -84,25 +84,6 @@ def visualize(model_dir,
     # Obtain the dataset name from the gin config of the previous step.
 
     #edited for pytorch case
-  if pytorch:
-    gin_config_file = os.path.join(model_dir, "results", "gin",
-                                   "train.gin")
-  else:
-    gin_config_file = os.path.join(model_dir, "results", "gin",
-                                   "train.gin")
-  gin_dict = results.gin_dict(gin_config_file)
-  with gin.unlock_config():
-    gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
-        "'", ""))
-    if pytorch:
-      gin.bind_parameter("VAE.conv", bool(gin_dict["VAE.conv"].replace(
-        "'", "")))
-      gin.bind_parameter("VAE.num_channels", int(gin_dict["VAE.num_channels"].replace(
-        "'", "")))
-      gin.bind_parameter("VAE.use_cuda", bool(gin_dict["VAE.use_cuda"].replace(
-        "'", "")))
-      gin.bind_parameter("VAE.z_dim", int(gin_dict["VAE.z_dim"].replace(
-        "'", "")))
 
   # dataset = named_data.get_named_ground_truth_data()
 
@@ -111,15 +92,20 @@ def visualize(model_dir,
   # gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
   #     "'", ""))
 
-
-
-  dataset = named_data.get_named_ground_truth_data()
   num_pics = 64
-  module_path = os.path.join(model_dir, "tfhub")
+
+  gin_config_file = os.path.join(model_dir, "results", "gin",
+                                 "train.gin")
+  gin_dict = results.gin_dict(gin_config_file)
 
 
-  if(not pytorch):
+  if(model_type == "tf"):
 
+    with gin.unlock_config():
+      gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
+        "'", ""))
+    dataset = named_data.get_named_ground_truth_data()
+    module_path = os.path.join(model_dir, "tfhub")
     # Automatically infer the activation function from gin config.
     activation_str = gin_dict.get("reconstruction_loss.activation", "'logits'")
     #activation_str = gin_dict["reconstruction_loss.activation"]
@@ -253,45 +239,113 @@ def visualize(model_dir,
       vis_all_interventional_effects(factors, latents, results_dir)
 
   else:
-    import sys
-    import torch
-    from beta_tcvae.vae_quant import VAE
-    device = torch.device(0) if torch.cuda.is_available() else torch.device("cpu")
-    model = VAE(device=device)
-    #TODO: here maybe general case for >4 GPUs
-    checkpoint = torch.load(module_path + "/model.pth", map_location=device)
-                            #map_location={'cuda:3': 'cuda:0', 'cuda:2': 'cuda:0', 'cuda:1': 'cuda:0'})
-    model.load_state_dict(checkpoint['model_state_dict'])
-    model.eval()
+    if model_type == "pytorch":
+      module_path = os.path.join(model_dir, "tfhub")
+      gin_config_file = os.path.join(model_dir, "results", "gin",
+                                     "train.gin")
+      gin_dict = results.gin_dict(gin_config_file)
+      with gin.unlock_config():
+        z_dim = gin_dict["VAE.z_dim"].replace("'", "")
+        if "%" in z_dim:
+          z_dim = gin_dict["z_dim"].replace("'", "")
+          gin.bind_parameter("discriminator.z_dim", int(z_dim))
+        gin.bind_parameter("VAE.z_dim", int(z_dim))
+        gin.bind_parameter("VAE.use_cuda", bool(tf.test.is_gpu_available()))
+        gin.bind_parameter("VAE.include_mutinfo", bool(gin_dict["VAE.include_mutinfo"].replace(
+          "'", "")))
+        gin.bind_parameter("VAE.tcvae", bool(gin_dict["VAE.tcvae"].replace(
+          "'", "")))
+        gin.bind_parameter("VAE.conv", bool(gin_dict["VAE.conv"].replace(
+          "'", "")))
+        gin.bind_parameter("VAE.mss", bool(gin_dict["VAE.mss"].replace(
+          "'", "")))
+        gin.bind_parameter("VAE.num_channels", int(gin_dict["VAE.num_channels"].replace(
+          "'", "")))
+      dataset = named_data.get_named_ground_truth_data()
+      import torch
+      from beta_tcvae.vae_quant import VAE
+      model = VAE(device=device)
+      if device == 'cpu':
+        checkpoint = torch.load(module_path + "/model.pth",
+                                map_location={'cuda:3': 'cpu', 'cuda:2': 'cpu', 'cuda:1': 'cpu:0', 'cuda:0': 'cpu'})
+      else:
+        checkpoint = torch.load(module_path + "/model.pth",
+                                map_location={'cuda:3': 'cuda:0', 'cuda:2': 'cuda:0', 'cuda:1': 'cuda:0'})
+      model.load_state_dict(checkpoint['model_state_dict'])
+      model.eval()
 
-    # Save latent traversals.
+      def _encoder(x):
+        x = np.moveaxis(x, 3, 1)
+        x = torch.from_numpy(x).to(device)
 
-    def _encoder(x):
-      x = np.moveaxis(x, 3,1)
-      x = torch.from_numpy(x).to(device)
+        zs, zs_params = model.encode(x)
+        zs_params = zs_params.cpu().detach().numpy()
 
-      zs, zs_params = model.encode(x)
-      zs = zs.cpu().detach().numpy()
-      zs_params = zs_params.cpu().detach().numpy()
+        return zs_params[:, :, 0], zs_params[:, :, 1]
 
-      return zs, zs_params
+      def _decoder(latent_vectors):
+        latent_vectors = torch.from_numpy(latent_vectors).to(device)
+        latent_vectors = latent_vectors.type(dtype=torch.float32)
+        xs, xs_params = model.decode(latent_vectors)
+        xs_params = xs_params.sigmoid().cpu().detach().numpy()
+        xs_params = np.moveaxis(xs_params, 1, 3)
 
-    def _decoder(latent_vectors):
-      latent_vectors = torch.from_numpy(latent_vectors).to(device)
-      latent_vectors = latent_vectors.type(dtype=torch.float32)
-      xs, xs_params = model.decode(latent_vectors)
-      xs_params = xs_params.sigmoid().cpu().detach().numpy()
-      xs_params = np.moveaxis(xs_params, 1, 3)
+        return xs_params
+    elif model_type == "aaae" or model_type == "bigaaae":
+      z_dim = gin_dict["VAE.z_dim"].replace("'", "")
+      if "%" in z_dim:
+        z_dim = gin_dict["z_dim"].replace("'", "")
+        gin.bind_parameter("discriminator.z_dim", int(z_dim))
+      num_channels = int(gin_dict["VAE.num_channels"].replace("'", ""))
+      if gin.query_parameter("dataset.name") == "auto":
+        gin.bind_parameter("dataset.name", gin_dict["dataset.name"].replace(
+          "'", ""))
+      dataset = named_data.get_named_ground_truth_data()
+      z_dim = int(z_dim)
 
-      return xs_params
+      import torch
+      import aaae.dislibvae
+      # device = torch.cuda.device(0) if torch.cuda.is_available() else torch.device("cpu")
+      device = 'cuda:0' if torch.cuda.is_available() else "cpu"
+      if model_type == "aaae":
+        vae = aaae.dislibvae.BetaTCVAE(z_dim, num_channels, 1)
+      else:
+        vae = aaae.dislibvae.BigBetaTCVAE(z_dim, num_channels, 1)
+      checkpoint_vae = torch.load(os.path.join(model_dir, "model.pth"), map_location=device)
+      if "encoder.bn1.bias" in checkpoint_vae.keys() and checkpoint_vae["encoder.bn1.bias"].std() > 0:
+        vae.encoder.use_batch_norm = True
+      if "decoder.bn1.bias" in checkpoint_vae.keys() and checkpoint_vae["decoder.bn1.bias"].std() > 0:
+        vae.decoder.use_batch_norm = True
+      vae.load_state_dict(checkpoint_vae)
+      vae.to(device)
+      vae.eval()
+
+      def _encoder(x):
+        """Computes representation vector for input images."""
+
+        # change numpy array samples such that it is [batch, channels, x, y]
+        x = np.moveaxis(x, 3, 1)
+        x = torch.from_numpy(x).to(device)
+
+        mean, logvar = vae.encode(x)
+
+        return mean.cpu().detach().numpy(), logvar.cpu().detach().numpy()
+
+      def _decoder(latent_vectors):
+        latent_vectors = torch.from_numpy(latent_vectors).to(device)
+        latent_vectors = latent_vectors.type(dtype=torch.float32)
+        xs = vae.decode(latent_vectors)
+        xs = np.moveaxis(xs.cpu().detach().numpy(), 1, 3)
+        return xs
+
     # Save reconstructions.
 
     # feed samples through pytorch model
 
     real_pics = dataset.sample_observations(num_pics, random_state)
     x = torch.from_numpy(real_pics).to(device)
-    zs, zs_params = _encoder(real_pics)
-    pics = _decoder(zs_params[:,:,0])
+    means, logvars = _encoder(real_pics)
+    pics = _decoder(means)
 
     paired_pics = np.concatenate((real_pics, pics), axis=2)
     paired_pics = [paired_pics[i, :, :, :] for i in range(paired_pics.shape[0])]
@@ -325,10 +379,7 @@ def visualize(model_dir,
     num_pics = 10
     real_pics = dataset.sample_observations(num_pics, random_state)
     # pics = torch.from_numpy(real_pics).to(device)
-    zs, zs_params = _encoder(real_pics)
-
-    means = zs_params[:,:,0]
-    logvars = zs_params[:,:,1]
+    means, logvars = _encoder(real_pics)
 
     results_dir = os.path.join(output_dir, "traversals")
     if not gfile.IsDirectory(results_dir):

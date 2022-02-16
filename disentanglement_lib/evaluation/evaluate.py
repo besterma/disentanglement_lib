@@ -54,7 +54,8 @@ def evaluate_with_gin(model_dir,
                       overwrite=False,
                       gin_config_files=None,
                       gin_bindings=None,
-                      type="tf"):
+                      type="tf",
+                      dataset_cache=None):
   """Evaluate a representation based on the provided gin configuration.
 
   This function will set the provided gin bindings, call the evaluate()
@@ -74,7 +75,7 @@ def evaluate_with_gin(model_dir,
   if gin_bindings is None:
     gin_bindings = []
   gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
-  evaluate(model_dir, output_dir, type, overwrite)
+  evaluate(model_dir, output_dir, type, overwrite, dataset_cache=dataset_cache)
   gin.clear_config()
 
 
@@ -87,7 +88,8 @@ def evaluate(model_dir,
              evaluation_fn=gin.REQUIRED,
              random_seed=gin.REQUIRED,
              unsupervised=False,
-             name=""):
+             name="",
+             dataset_cache=None):
   """Loads a representation TFHub module and computes disentanglement metrics.
 
   Args:
@@ -134,7 +136,10 @@ def evaluate(model_dir,
                          float(gin_dict["reduced_dsprites_cont.train_split"].replace(
                            "'", "")))
   print("start loading dataset")
-  dataset = named_data.get_named_ground_truth_data()
+  if dataset_cache is not None:
+    dataset = dataset_cache
+  else:
+    dataset = named_data.get_named_ground_truth_data()
   print("dataset loaded")
 
   if type == "pytorch":
@@ -235,25 +240,59 @@ def evaluate(model_dir,
     else:
       vae = aaae.dislibvae.BigBetaTCVAE(z_dim, num_channels, 1)
     checkpoint_vae = torch.load(os.path.join(model_dir, "model.pth"), map_location=device)
+    if "encoder.bn1.bias" in checkpoint_vae.keys() and checkpoint_vae["encoder.bn1.bias"].std() > 0:
+      vae.encoder.use_batch_norm = True
+    if "decoder.bn1.bias" in checkpoint_vae.keys() and checkpoint_vae["decoder.bn1.bias"].std() > 0:
+      vae.decoder.use_batch_norm = True
     vae.load_state_dict(checkpoint_vae)
     vae.to(device)
     vae.eval()
 
-    def _encode(x):
-      """Computes representation vector for input images."""
+    if unsupervised:
+      def _encode(x):
+        """Computes representation vector for input images."""
 
-      # change numpy array samples such that it is [batch, channels, x, y]
-      x = np.moveaxis(x, 3, 1)
-      x = torch.from_numpy(x).to(device)
+        # change numpy array samples such that it is [batch, channels, x, y]
+        x = np.moveaxis(x, 3, 1)
+        x = torch.from_numpy(x).to(device)
 
-      mean, logvar = vae.encode(x)
+        mean, logvar = vae.encode(x)
 
-      return mean.cpu().detach().numpy()
+        return mean.cpu().detach().numpy(), logvar.cpu().detach().numpy()
 
-    results_dict = evaluation_fn(
-      dataset,
-      _encode,
-      random_state=np.random.RandomState(random_seed))
+      def _decode(latent_vectors):
+        latent_vectors = torch.from_numpy(latent_vectors).to(device)
+        latent_vectors = latent_vectors.type(dtype=torch.float32)
+        xs = vae.decode(latent_vectors)
+        xs = np.moveaxis(xs.cpu().detach().numpy(), 1, 3)
+        return xs
+
+      def _reconstruct(x):
+        return _decode(_encode(x)[0])
+
+      results_dict = evaluation_fn(
+        dataset,
+        _encode,
+        _decode,
+        _reconstruct,
+        random_state=np.random.RandomState(random_seed)
+      )
+    else:
+      def _encode(x):
+        """Computes representation vector for input images."""
+
+        # change numpy array samples such that it is [batch, channels, x, y]
+        x = np.moveaxis(x, 3, 1)
+        x = torch.from_numpy(x).to(device)
+
+        mean, logvar = vae.encode(x)
+
+        return mean.cpu().detach().numpy()
+
+      results_dict = evaluation_fn(
+        dataset,
+        _encode,
+        random_state=np.random.RandomState(random_seed))
 
   else:
     # Path to TFHub module of previously trained representation.
