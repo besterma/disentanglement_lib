@@ -63,6 +63,7 @@ def compute_discriminator(ground_truth_data,
     random_state: Numpy random state used for randomness.
     artifact_dir: Optional path to directory where artifacts can be saved.
     batch_size: Batch size for sampling.
+    z_dim: size of latent space of model
 
   Returns:
     Dict with average mutual information gap.
@@ -78,9 +79,11 @@ def compute_discriminator(ground_truth_data,
     for num_samples in train_dataset_sizes:
         print(f"Working on {num_samples}")
         bs = int(np.min((num_samples // 15, batch_size)))
-        accuracy = discriminator_overall_accuracy(bs, decode, encode, ground_truth_data, num_samples,
+        accuracy, kl_divs, n_active = discriminator_overall_accuracy(bs, decode, encode, ground_truth_data, num_samples,
                                                   random_state, reconstruct, generate_reconstructed_sampled, z_dim)
         score_dict[f"accuracy.{num_samples}"] = accuracy
+        score_dict[f"kl_divs.{num_samples}"] = str(kl_divs)
+        score_dict[f"n_active.{num_samples}"] = n_active
 
     del artifact_dir
     return score_dict
@@ -94,7 +97,7 @@ def discriminator_overall_accuracy(batch_size, decode, encode, ground_truth_data
             axis=0)
 
     N = num_samples - (num_samples % batch_size)
-    class_one_images, class_two_images = image_group_generator(N, batch_size, compute_gaussian_kl, decode,
+    class_one_images, class_two_images, kl_divs, n_active = image_group_generator(N, batch_size, compute_gaussian_kl, decode,
                                                                           encode, ground_truth_data, random_state,
                                                                           reconstruct, z_dim)
     images, labels = aggregate_and_get_labels(class_one_images, class_two_images)
@@ -119,7 +122,7 @@ def discriminator_overall_accuracy(batch_size, decode, encode, ground_truth_data
         eval_dataset = generate_dataset_from_numpy(x_eval, y_eval)
         test_dataset = generate_dataset_from_numpy(x_test, y_test)
         accuracies.append(discriminator_accuracy(train_dataset, eval_dataset, test_dataset, num_channels, batch_size))
-    return np.median(accuracies)
+    return np.median(accuracies), kl_divs, n_active
 
 
 @torch.enable_grad()
@@ -227,7 +230,7 @@ def generate_reconstructed_sampled(N, batch_size, compute_gaussian_kl, decode, e
     for i in range(nr_batches):
         images = decode(random_code[i * batch_size: (i + 1) * batch_size])
         sampled_images.append(images)
-    return reconstructed_images, sampled_images
+    return reconstructed_images, sampled_images, kl_divs, n_active
 
 
 def generate_original_sampled(N, batch_size, compute_gaussian_kl, decode, encode, ground_truth_data, random_state,
@@ -245,6 +248,7 @@ def generate_original_sampled(N, batch_size, compute_gaussian_kl, decode, encode
         original_images.append(images)
     kl_divs = compute_gaussian_kl(means, logvars)
     active = [i for i in range(z_dim) if kl_divs[i] > 0.01]
+    n_active = len(active)
 
     print("get dataset of sampled images")
     random_code = np.zeros((N, z_dim))
@@ -256,7 +260,7 @@ def generate_original_sampled(N, batch_size, compute_gaussian_kl, decode, encode
     for i in range(nr_batches):
         images = decode(random_code[i * batch_size: (i + 1) * batch_size])
         sampled_images.append(images)
-    return original_images, sampled_images
+    return original_images, sampled_images, kl_divs, n_active
 
 
 def compute_importance_gbtregressor(x_train, y_train, x_test, y_test):
