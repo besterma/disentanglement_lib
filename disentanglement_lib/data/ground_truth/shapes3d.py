@@ -24,14 +24,14 @@ import numpy as np
 from six.moves import range
 import tensorflow.compat.v1 as tf
 import h5py
-
+import gin
 
 SHAPES3D_PATH = os.path.join(
     os.environ.get("DISENTANGLEMENT_LIB_DATA", "."), "3dshapes", "3dshapes.h5"
 )
 
 
-
+@gin.configurable("shapes3d", allowlist=["latent_factor_indices"])
 class Shapes3D(ground_truth_data.GroundTruthData):
   """Shapes3D dataset.
 
@@ -46,7 +46,7 @@ class Shapes3D(ground_truth_data.GroundTruthData):
   5 - azimuth (15 different values)
   """
 
-  def __init__(self):
+  def __init__(self, latent_factor_indices=None):
     with h5py.File(SHAPES3D_PATH, 'r') as dataset:
       images = dataset['images'][()]
       labels = dataset['labels'][()]
@@ -55,7 +55,10 @@ class Shapes3D(ground_truth_data.GroundTruthData):
     self.images = images.reshape([n_samples, 64, 64, 3])
     features = labels.reshape([n_samples, 6])
     self.factor_sizes = [10, 10, 10, 8, 4, 15]
-    self.latent_factor_indices = list(range(6))
+    if latent_factor_indices is None:
+      self.latent_factor_indices = list(range(6))
+    else:
+      self.latent_factor_indices = latent_factor_indices
     self.num_total_factors = features.shape[1]
     self.state_space = util.SplitDiscreteStateSpace(self.factor_sizes,
                                                     self.latent_factor_indices)
@@ -68,12 +71,11 @@ class Shapes3D(ground_truth_data.GroundTruthData):
 
   @property
   def factors_num_values(self):
-    return self.factor_sizes
+    return [self.full_factor_sizes[i] for i in self.latent_factor_indices]
 
   @property
   def observation_shape(self):
     return [64, 64, 3]
-
 
   def sample_factors(self, num, random_state):
     """Sample a batch of factors Y."""

@@ -55,6 +55,7 @@ class SmallNORB(ground_truth_data.GroundTruthData):
   def __init__(self):
     self.images, features = _load_small_norb_chunks(SMALLNORB_TEMPLATE,
                                                     SMALLNORB_CHUNKS)
+    self.features = features
     self.factor_sizes = [5, 10, 9, 18, 6]
     # Instances are not part of the latent space.
     self.latent_factor_indices = [0, 2, 3, 4]

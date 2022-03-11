@@ -233,18 +233,34 @@ def evaluate(model_dir,
 
     import torch
     import aaae.dislibvae
-    # device = torch.cuda.device(0) if torch.cuda.is_available() else torch.device("cpu")
     device = 'cuda:0' if torch.cuda.is_available() else "cpu"
-    if type == "aaae":
-      vae = aaae.dislibvae.BetaTCVAE(z_dim, num_channels, 1)
-    else:
-      vae = aaae.dislibvae.BigBetaTCVAE(z_dim, num_channels, 1)
     checkpoint_vae = torch.load(os.path.join(model_dir, "model.pth"), map_location=device)
-    if "encoder.bn1.bias" in checkpoint_vae.keys() and checkpoint_vae["encoder.bn1.bias"].std() > 0:
-      vae.encoder.use_batch_norm = True
-    if "decoder.bn1.bias" in checkpoint_vae.keys() and checkpoint_vae["decoder.bn1.bias"].std() > 0:
-      vae.decoder.use_batch_norm = True
-    vae.load_state_dict(checkpoint_vae)
+
+    use_batch_norm = False
+    use_layer_norm = False
+    use_instance_norm = False
+    if "use_batch_norm" in checkpoint_vae.keys():
+      use_batch_norm = checkpoint_vae["use_batch_norm"]
+      use_layer_norm = checkpoint_vae["use_layer_norm"]
+      use_instance_norm = checkpoint_vae["use_instance_norm"]
+    elif "encoder.bn1.running_mean" in checkpoint_vae.keys() and checkpoint_vae["encoder.bn1.running_mean"].any():
+      if "encoder.bn2.running_mean" in checkpoint_vae.keys():
+        assert len(checkpoint_vae["bn1.bias"].shape) == 1
+        use_batch_norm = True
+      else:
+        use_instance_norm = True
+    elif "encoder.bn1.bias" in checkpoint_vae.keys() and checkpoint_vae["encoder.bn1.bias"].std() > 0:
+      assert len(checkpoint_vae["bn1.bias"].shape) == 3
+      use_layer_norm = True
+    #  vae.decoder.use_batch_norm = True
+    if type == "aaae":
+      vae = aaae.dislibvae.BetaTCVAE(z_dim, num_channels, 1, use_batch_norm=use_batch_norm,
+                                     use_layer_norm=use_layer_norm, use_instance_norm=use_instance_norm)
+    else:
+      vae = aaae.dislibvae.BigBetaTCVAE(z_dim, num_channels, 1, use_batch_norm=use_batch_norm)
+
+    # device = torch.cuda.device(0) if torch.cuda.is_available() else torch.device("cpu")
+    vae.load_state_dict(checkpoint_vae, strict=False)
     vae.to(device)
     vae.eval()
 

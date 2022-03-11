@@ -53,7 +53,11 @@ class NumpyArrayData(ground_truth_data.GroundTruthData):
     else:
         self.images = np.load(data_array_path)["images"]
         self.images = np.moveaxis(self.images, 1, 3) # we assume input data in pytorch shape
-        self.labels = np.load(data_array_path)["labels"]
+        try:
+            self.labels = np.load(data_array_path)["labels"]
+        except:
+            print("NumpyArrayData did not have any labels present")
+            self.labels = np.zeros((self.images.shape[0], 1))
     self.data_shape = self.images.shape[-3:]
     self.nr_images = self.images.shape[0]
 

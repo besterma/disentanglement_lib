@@ -34,6 +34,7 @@ from beta_tcvae.vae_quant import ConvEncoder, ConvDiscriminator
 
 from disentanglement_lib.evaluation.metrics import utils
 import numpy as np
+from scipy.special import logsumexp
 import gin.tf
 
 
@@ -79,11 +80,12 @@ def compute_discriminator(ground_truth_data,
     for num_samples in train_dataset_sizes:
         print(f"Working on {num_samples}")
         bs = int(np.min((num_samples // 15, batch_size)))
-        accuracy, kl_divs, n_active = discriminator_overall_accuracy(bs, decode, encode, ground_truth_data, num_samples,
+        accuracy, kl_divs, n_active, tc = discriminator_overall_accuracy(bs, decode, encode, ground_truth_data, num_samples,
                                                   random_state, reconstruct, generate_reconstructed_sampled, z_dim)
         score_dict[f"accuracy.{num_samples}"] = accuracy
         score_dict[f"kl_divs.{num_samples}"] = str(kl_divs)
         score_dict[f"n_active.{num_samples}"] = n_active
+        score_dict[f"tc.{num_samples}"] = tc
 
     del artifact_dir
     return score_dict
@@ -97,7 +99,7 @@ def discriminator_overall_accuracy(batch_size, decode, encode, ground_truth_data
             axis=0)
 
     N = num_samples - (num_samples % batch_size)
-    class_one_images, class_two_images, kl_divs, n_active = image_group_generator(N, batch_size, compute_gaussian_kl, decode,
+    class_one_images, class_two_images, kl_divs, n_active, tc = image_group_generator(N, batch_size, compute_gaussian_kl, decode,
                                                                           encode, ground_truth_data, random_state,
                                                                           reconstruct, z_dim)
     images, labels = aggregate_and_get_labels(class_one_images, class_two_images)
@@ -122,7 +124,7 @@ def discriminator_overall_accuracy(batch_size, decode, encode, ground_truth_data
         eval_dataset = generate_dataset_from_numpy(x_eval, y_eval)
         test_dataset = generate_dataset_from_numpy(x_test, y_test)
         accuracies.append(discriminator_accuracy(train_dataset, eval_dataset, test_dataset, num_channels, batch_size))
-    return np.median(accuracies), kl_divs, n_active
+    return np.median(accuracies), kl_divs, n_active, tc
 
 
 @torch.enable_grad()
@@ -206,6 +208,8 @@ def generate_reconstructed_sampled(N, batch_size, compute_gaussian_kl, decode, e
     nr_batches = int(N / batch_size)
     means = np.zeros((N, z_dim))
     logvars = np.zeros((N, z_dim))
+    sampled = np.zeros((N, z_dim))
+    tcs = np.zeros(nr_batches)
     reconstructed_images = []
     print("get dataset of reconstructed images")
     for i in range(nr_batches):
@@ -218,8 +222,12 @@ def generate_reconstructed_sampled(N, batch_size, compute_gaussian_kl, decode, e
         reconstructed = reconstruct(images)
         means[i * batch_size: (i + 1) * batch_size] = mean
         logvars[i * batch_size: (i + 1) * batch_size] = logvar
+        sample = mean + np.exp(logvar / 2) * np.random.normal(0, 1, logvar.shape)
+        tcs[i] = total_correlation(sample, mean, logvar, N)
+        sampled[i * batch_size: (i + 1) * batch_size] = sample
         reconstructed_images.append(reconstructed)
     kl_divs = compute_gaussian_kl(means, logvars)
+    tc = tcs.mean()
     active = [i for i in range(z_dim) if kl_divs[i] > 0.01]
     inactive = [i for i in range(z_dim) if kl_divs[i] <= 0.01]
     n_active = len(active)
@@ -230,7 +238,7 @@ def generate_reconstructed_sampled(N, batch_size, compute_gaussian_kl, decode, e
     for i in range(nr_batches):
         images = decode(random_code[i * batch_size: (i + 1) * batch_size])
         sampled_images.append(images)
-    return reconstructed_images, sampled_images, kl_divs, n_active
+    return reconstructed_images, sampled_images, kl_divs, n_active, tc
 
 
 def generate_original_sampled(N, batch_size, compute_gaussian_kl, decode, encode, ground_truth_data, random_state,
@@ -238,6 +246,8 @@ def generate_original_sampled(N, batch_size, compute_gaussian_kl, decode, encode
     nr_batches = int(N / batch_size)
     means = np.zeros((N, z_dim))
     logvars = np.zeros((N, z_dim))
+    sampled = np.zeros((N, z_dim))
+
     original_images = []
     print("get dataset of original images")
     for i in range(nr_batches):
@@ -245,8 +255,10 @@ def generate_original_sampled(N, batch_size, compute_gaussian_kl, decode, encode
         (mean, logvar) = encode(images)
         means[i * batch_size: (i + 1) * batch_size] = mean
         logvars[i * batch_size: (i + 1) * batch_size] = logvar
+        sampled[i * batch_size: (i + 1) * batch_size] = mean + np.exp(logvar / 2) * np.random.normal(0, 1, batch_size)
         original_images.append(images)
     kl_divs = compute_gaussian_kl(means, logvars)
+    tc = total_correlation(sampled, means, logvars, N)
     active = [i for i in range(z_dim) if kl_divs[i] > 0.01]
     n_active = len(active)
 
@@ -260,7 +272,7 @@ def generate_original_sampled(N, batch_size, compute_gaussian_kl, decode, encode
     for i in range(nr_batches):
         images = decode(random_code[i * batch_size: (i + 1) * batch_size])
         sampled_images.append(images)
-    return original_images, sampled_images, kl_divs, n_active
+    return original_images, sampled_images, kl_divs, n_active, tc
 
 
 def compute_importance_gbtregressor(x_train, y_train, x_test, y_test):
@@ -317,3 +329,33 @@ def similarity_score_var(qz_param, means, i):
     mask[i] = False
     result = results[i] - np.max(np.abs(results[mask]))
     return result
+
+
+def gaussian_log_density(z_sampled,
+                         z_mean,
+                         z_logvar):
+    normalization = np.log(2. * np.pi)
+    inv_sigma = np.exp(-z_logvar)
+    tmp = (z_sampled - z_mean)
+    return -0.5 * (tmp * tmp * inv_sigma + z_logvar + normalization)
+
+
+def total_correlation(z,
+                      z_mean,
+                      z_logvar,
+                      dataset_size: int):
+    batch_size = z.shape[0]
+    num_latents = z.shape[1]
+    constant = (num_latents - 1) * np.log(batch_size * dataset_size)
+    log_qz_prob = gaussian_log_density(np.expand_dims(z, 1), np.expand_dims(z_mean, 0),
+      np.expand_dims(z_logvar, 0))
+
+    log_qz_product = np.sum(
+        logsumexp(log_qz_prob, axis=1) + constant,
+        axis=1
+    )
+    log_qz = logsumexp(
+        np.sum(log_qz_prob, axis=2),
+        axis=1
+    ) + constant
+    return np.mean(log_qz - log_qz_product)
