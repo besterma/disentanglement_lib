@@ -82,7 +82,6 @@ class DSprites(ground_truth_data.GroundTruthData):
   def observation_shape(self):
     return self.data_shape
 
-
   def sample_factors(self, num, random_state):
     """Sample a batch of factors Y."""
     return self.state_space.sample_latent_factors(num, random_state)
@@ -278,4 +277,47 @@ class AbstractDSprites(DSprites):
     background_color = np.expand_dims(np.expand_dims(background_color, 1), 1)
     object_color = np.expand_dims(np.expand_dims(object_color, 1), 1)
 
-    return mask * object_color + (1. - mask) * background_color
+    return (mask * object_color + (1. - mask) * background_color).astype(np.float32)
+  """
+  def sample_images_from_factors(self, factors):
+      import numpy as np
+
+      indices = np.array(np.dot(factors[:, 2:], self.factor_bases), dtype=np.int64)
+      OBJECT_COLORS = np.array(
+          [[0.9096231780824386, 0.5883403686424795, 0.3657680693481871],
+           [0.6350181801577739, 0.6927729880940552, 0.3626904230371999],
+           [0.3764832455369271, 0.7283900430001952, 0.5963114605342514],
+           [0.39548987063404156, 0.7073922557810771, 0.7874577552076919],
+           [0.6963644829189117, 0.6220697032672371, 0.899716387820763],
+           [0.90815966835861, 0.5511103319168646, 0.7494337214212151]])
+
+      BACKGROUND_COLORS = np.array([
+          (0., 0., 0.),
+          (.25, .25, .25),
+          (.5, .5, .5),
+          (.75, .75, .75),
+          (1., 1., 1.),
+      ])
+      from sklearn.utils import extmath
+      factor_sizes = [5, 6, 3, 6, 32, 32]
+      features = extmath.cartesian(
+          [np.array(list(range(i))) for i in factor_sizes])
+      BACKGROUND_COLORS *= 255.
+      BACKGROUND_COLORS = BACKGROUND_COLORS.astype(np.uint8)
+      OBJECT_COLORS *= 255.
+      OBJECT_COLORS = OBJECT_COLORS.astype(np.uint8)
+
+      nr_abstract = 32*32*6*3
+      abstract_images=np.zeros((5,6,nr_abstract, 64, 64, 3), dtype=np.uint8)
+
+      for i in range(5):
+          print(i)
+          for j in range(6):
+              background_color = BACKGROUND_COLORS[np.repeat(i, nr_abstract)]
+              object_color = OBJECT_COLORS[np.repeat(j, nr_abstract)]
+
+              # Add axis for height and width.
+              background_color = np.expand_dims(np.expand_dims(background_color, 1), 1)
+              object_color = np.expand_dims(np.expand_dims(object_color, 1), 1)
+              abstract_images[i, j] =  mask * object_color + (1 - mask) * background_color
+  """

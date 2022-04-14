@@ -28,6 +28,7 @@ import scipy
 from six.moves import range
 from sklearn import ensemble
 import gin.tf
+import pickle
 
 
 @gin.configurable(
@@ -96,6 +97,7 @@ def _compute_dci(mus_train, ys_train, mus_test, ys_test):
   scores["informativeness_test"] = test_err
   scores["disentanglement"] = disentanglement(importance_matrix)
   scores["completeness"] = completeness(importance_matrix)
+  scores["importance_matrix"] = pickle.dumps(importance_matrix).hex()
   return scores
 
 

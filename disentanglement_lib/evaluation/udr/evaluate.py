@@ -39,12 +39,13 @@ import gin.tf
 FLAGS = flags.FLAGS
 
 
-@gin.configurable("evaluation", blacklist=["model_dirs", "output_dir"])
+@gin.configurable("evaluation_udr", blacklist=["model_dirs", "output_dir"])
 def evaluate(model_dirs,
              output_dir,
              evaluation_fn=gin.REQUIRED,
              random_seed=gin.REQUIRED,
-             name=""):
+             name="",
+             dataset_cache=None):
   """Loads a trained estimator and evaluates it according to beta-VAE metric."""
   # The name will be part of the gin config and can be used to tag results.
   del name
@@ -67,8 +68,12 @@ def evaluate(model_dirs,
   output_dir = os.path.join(output_dir)
   if tf.io.gfile.isdir(output_dir):
     tf.io.gfile.rmtree(output_dir)
-
-  dataset = named_data.get_named_ground_truth_data()
+  print("start loading dataset")
+  if dataset_cache is not None:
+      dataset = dataset_cache
+  else:
+      dataset = named_data.get_named_ground_truth_data()
+  print("dataset loaded")
 
   with contextlib.ExitStack() as stack:
     representation_functions = []
