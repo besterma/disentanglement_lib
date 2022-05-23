@@ -114,7 +114,7 @@ def _s2_factor_config_generator():
       "model.model = @s2_factor_vae", "model.num_labelled_samples = 100",
       "model.train_percentage = 0.9", "s2_factor_vae.gamma = 4",
       "s2_factor_vae.gamma_sup = 4", "annealer.iteration_threshold = 1",
-      "discriminator.discriminator_fn = @fc_discriminator",
+      "discriminator_.discriminator_fn = @fc_discriminator",
       "discriminator_optimizer.optimizer_fn = @AdamOptimizer",
       "model.model_seed = 0",
       "model.unsupervised_data_seed = 0", "model.supervised_data_seed = 0",

@@ -57,7 +57,7 @@ def _config_generator():
   # Test FactorVAE.
   factor_vae = [
       "model.model = @factor_vae()",
-      "discriminator.discriminator_fn = @fc_discriminator",
+      "discriminator_.discriminator_fn = @fc_discriminator",
       "discriminator_optimizer.optimizer_fn = @AdamOptimizer",
       "factor_vae.gamma = 10."
   ]

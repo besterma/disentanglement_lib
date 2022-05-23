@@ -32,13 +32,13 @@ import tensorflow_hub as hub
 import gin.tf
 
 
-
 def visualize_with_gin(model_dir,
                       output_dir,
                       overwrite=False,
                       gin_config_files=None,
                       gin_bindings=None,
-                      model_type="tf"):
+                      model_type="tf",
+                      dataset_cache=None):
   if gin_config_files is None:
     gin_config_files = []
   if gin_bindings is None:
@@ -54,7 +54,8 @@ def visualize(model_dir,
               num_frames=20,
               fps=10,
               num_points_irs=10000,
-              model_type="tf"):
+              model_type="tf",
+              dataset_cache=None):
   """Takes trained model from model_dir and visualizes it in output_dir.
 
   Args:
@@ -65,6 +66,8 @@ def visualize(model_dir,
     num_frames: Integer with number of frames in each animation.
     fps: Integer with frame rate for the animation.
     num_points_irs: Number of points to be used for the IRS plots.
+    model_type: tensorflow or aaae
+    dataset_cache: used to not reload dataset every time
   """
   # Fix the random seed for reproducibility.
   random_state = np.random.RandomState(0)
@@ -362,9 +365,10 @@ def visualize(model_dir,
     means, logvars = _encoder(real_pics)
     pics = _decoder(means)
 
+    results_dir = os.path.join(output_dir, "reconstructions")
+
     paired_pics = np.concatenate((real_pics, pics), axis=2)
     paired_pics = [paired_pics[i, :, :, :] for i in range(paired_pics.shape[0])]
-    results_dir = os.path.join(output_dir, "reconstructions")
     if not gfile.IsDirectory(results_dir):
       gfile.MakeDirs(results_dir)
     visualize_util.grid_save_images(
@@ -376,19 +380,56 @@ def visualize(model_dir,
     # Save samples.
 
     # num_latent = int(gin_dict["encoder.num_latent"])
-    num_latent = 10
+    num_latent = z_dim
     num_pics = 64
 
+    # plot images sampled from prior
     random_codes = random_state.normal(0, 1, [num_pics, num_latent])
     xs = _decoder(random_codes)
     pics = xs
-
     results_dir = os.path.join(output_dir, "sampled")
     if not gfile.IsDirectory(results_dir):
       gfile.MakeDirs(results_dir)
     visualize_util.grid_save_images(pics,
                                     os.path.join(results_dir, "samples.jpg"))
 
+    # plot images sampled uniformly from min/max range
+    random_codes = (np.max(means, axis=0) - np.min(means, axis=0)) * random_state.random_sample((num_pics, z_dim)) + np.min(
+      means,
+      axis=0)
+    xs = _decoder(random_codes)
+    pics = xs
+    results_dir = os.path.join(output_dir, "sampled")
+    if not gfile.IsDirectory(results_dir):
+      gfile.MakeDirs(results_dir)
+    visualize_util.grid_save_images(pics,
+                                    os.path.join(results_dir, "samples_uniform.jpg"))
+
+    random_codes = np.zeros((num_pics, z_dim))
+    for j in range(z_dim):
+      indices = random_state.permutation(range(num_pics))
+      random_codes[:, j] = means[indices, j]
+    xs = _decoder(random_codes)
+    pics = xs
+    results_dir = os.path.join(output_dir, "sampled")
+    if not gfile.IsDirectory(results_dir):
+      gfile.MakeDirs(results_dir)
+    visualize_util.grid_save_images(pics,
+                                    os.path.join(results_dir, "samples_posterior.jpg"))
+
+
+    random_codes = np.zeros((num_pics, z_dim))
+    for j in range(z_dim):
+      loc = np.mean(means[:, j])
+      total_variance = np.mean(np.exp(logvars[:, j])) + np.var(means[:, j])
+      random_codes[:, j] = random_state.normal(loc, total_variance, (num_pics))
+    xs = _decoder(random_codes)
+    pics = xs
+    results_dir = os.path.join(output_dir, "sampled")
+    if not gfile.IsDirectory(results_dir):
+      gfile.MakeDirs(results_dir)
+    visualize_util.grid_save_images(pics,
+                                    os.path.join(results_dir, "samples_fitted_gaussian.jpg"))
 
 
     num_pics = 10
@@ -399,7 +440,7 @@ def visualize(model_dir,
     results_dir = os.path.join(output_dir, "traversals")
     if not gfile.IsDirectory(results_dir):
       gfile.MakeDirs(results_dir)
-    for i in range(means.shape[1]):
+    for i in range(means.shape[0]):
       pics = latent_traversal_1d_multi_dim(_decoder, means[i, :], None)
       file_name = os.path.join(results_dir, "traversals{}.jpg".format(i))
       visualize_util.grid_save_images([pics], file_name)

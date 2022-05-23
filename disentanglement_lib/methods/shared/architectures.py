@@ -84,7 +84,7 @@ def make_decoder(latent_tensor,
         is_training=is_training)
 
 
-@gin.configurable("discriminator", whitelist=["discriminator_fn"])
+@gin.configurable("discriminator_", whitelist=["discriminator_fn"])
 def make_discriminator(input_tensor,
                        is_training=False,
                        discriminator_fn=gin.REQUIRED):

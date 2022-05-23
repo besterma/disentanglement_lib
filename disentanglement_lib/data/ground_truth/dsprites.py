@@ -24,6 +24,7 @@ import numpy as np
 import PIL
 from six.moves import range
 from tensorflow.compat.v1 import gfile
+import gin
 
 
 DSPRITES_PATH = os.path.join(
@@ -33,7 +34,7 @@ SCREAM_PATH = os.path.join(
     os.environ.get("DISENTANGLEMENT_LIB_DATA", "."), "scream", "scream.jpg")
 
 
-
+@gin.configurable("dsprites", allowlist=["latent_factor_indices"])
 class DSprites(ground_truth_data.GroundTruthData):
   """DSprites dataset.
 
