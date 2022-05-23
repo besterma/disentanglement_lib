@@ -36,6 +36,9 @@ from disentanglement_lib.evaluation.metrics import utils
 import numpy as np
 from scipy.special import logsumexp
 import gin.tf
+from PIL import Image
+from fid_score.fid_score import FidScore
+import os
 
 
 
@@ -52,7 +55,10 @@ def compute_discriminator(ground_truth_data,
                           train_dataset_sizes=[32, 128, 1024, 10000, 50000],
                           awgn_var=0,
                           batch_size=32,
-                          z_dim=10):
+                          z_dim=10,
+                          uniform=True,
+                          num_runs=1,
+                          compute_fid=False):
     """Computes the stability metric
 
   Args:
@@ -77,22 +83,28 @@ def compute_discriminator(ground_truth_data,
     #     accuracy = discriminator_overall_accuracy(bs, decode, encode, ground_truth_data, num_samples,
     #                                       random_state, reconstruct, generate_original_sampled)
     #     score_dict[f"original.accuracy.{num_samples}"] = accuracy
+
     for num_samples in train_dataset_sizes:
         print(f"Working on {num_samples}")
         bs = int(np.min((num_samples // 15, batch_size)))
-        accuracy, kl_divs, n_active, tc = discriminator_overall_accuracy(bs, decode, encode, ground_truth_data, num_samples,
-                                                  random_state, reconstruct, generate_reconstructed_sampled, z_dim)
-        score_dict[f"accuracy.{num_samples}"] = accuracy
+        accuracies, epoch_accuracies, kl_divs, n_active, tc, fids = discriminator_overall_accuracy(bs, decode, encode, ground_truth_data, num_samples,
+                                                  random_state, reconstruct, generate_reconstructed_sampled, z_dim,
+                                                                         uniform, num_runs, compute_fid)
+        score_dict[f"accuracy.{num_samples}"] = np.median(accuracies)
+        for i in range(num_runs):
+            score_dict[f"run_{i}.accuracy.{num_samples}"] = accuracies[i]
+            score_dict[f"run_{i}.epoch_accuracies.{num_samples}"] = epoch_accuracies[i]
         score_dict[f"kl_divs.{num_samples}"] = str(kl_divs)
         score_dict[f"n_active.{num_samples}"] = n_active
         score_dict[f"tc.{num_samples}"] = tc
+        score_dict["fids"] = fids
 
     del artifact_dir
     return score_dict
 
 
 def discriminator_overall_accuracy(batch_size, decode, encode, ground_truth_data, num_samples, random_state,
-                                   reconstruct, image_group_generator, z_dim):
+                                   reconstruct, image_group_generator, z_dim, uniform, num_runs, compute_fid):
     def compute_gaussian_kl(z_mean, z_logvar):
         return np.mean(
             0.5 * (np.square(z_mean) + np.exp(z_logvar) - z_logvar - 1),
@@ -101,14 +113,16 @@ def discriminator_overall_accuracy(batch_size, decode, encode, ground_truth_data
     N = num_samples - (num_samples % batch_size)
     class_one_images, class_two_images, kl_divs, n_active, tc = image_group_generator(N, batch_size, compute_gaussian_kl, decode,
                                                                           encode, ground_truth_data, random_state,
-                                                                          reconstruct, z_dim)
+                                                                          reconstruct, z_dim, uniform=uniform)
+
     images, labels = aggregate_and_get_labels(class_one_images, class_two_images)
     num_channels = images.shape[-1]
     if num_channels != 1 and num_channels != 3:
         # this might happen with pytorch data channel ordering
         num_channels = images.shape[-3]
     accuracies = []
-    for _ in range(1):
+    epoch_accuracies = []
+    for _ in range(num_runs):
         print("split into appropriately sized train/test")
         x_train, x_test, y_train, y_test = train_test_split(images, labels,
                                                             test_size=0.5,
@@ -121,15 +135,29 @@ def discriminator_overall_accuracy(batch_size, decode, encode, ground_truth_data
                                                             random_state=random_state.randint(0, 100000),
                                                             shuffle=True)
         train_dataset = generate_dataset_from_numpy(x_train, y_train)
+        del x_train, y_train
         eval_dataset = generate_dataset_from_numpy(x_eval, y_eval)
+        del x_eval, y_eval
         test_dataset = generate_dataset_from_numpy(x_test, y_test)
-        accuracies.append(discriminator_accuracy(train_dataset, eval_dataset, test_dataset, num_channels, batch_size))
-    return np.median(accuracies), kl_divs, n_active, tc
+        del x_test, y_test
+        accuracy, epoch_accuracy = discriminator_accuracy(train_dataset, eval_dataset, test_dataset,
+                                                 num_channels, batch_size, random_state)
+        accuracies.append(accuracy)
+        epoch_accuracies.append(epoch_accuracy)
+    print(f"Individual accuracies: {accuracies}")
+    if compute_fid:
+        fids = compute_fids(encode, decode, ground_truth_data, random_state=random_state)
+    else:
+        fids = None
+    return accuracies, epoch_accuracies, kl_divs, n_active, tc, fids
 
 
 @torch.enable_grad()
-def discriminator_accuracy(train_dataset, eval_dataset, test_dataset, num_channels, batch_size):
+def discriminator_accuracy(train_dataset, eval_dataset, test_dataset, num_channels, batch_size, random_state):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    torch.manual_seed(random_state.randint(0, 100000))
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(random_state.randint(0, 100000))
     model = ConvDiscriminator(1, num_channels)
     model.to(device)
     loss_function = nn.BCELoss()
@@ -139,9 +167,12 @@ def discriminator_accuracy(train_dataset, eval_dataset, test_dataset, num_channe
                             pin_memory=torch.cuda.is_available())
     best_accuracy = 0
     best_model_state_dict = model.state_dict()
+    epoch_accuracies = []
+    current_step = 0
     for epoch in range(5):
         running_loss = 0.0
         for i, data in enumerate(dataloader, 0):
+            current_step += batch_size
             model.train()
             inputs, labels = data
             inputs, labels = inputs.to(device), labels.to(device)
@@ -153,6 +184,10 @@ def discriminator_accuracy(train_dataset, eval_dataset, test_dataset, num_channe
             optimizer.step()
 
             running_loss += loss.item()
+            if current_step >= 5000:
+                current_step = 0
+                accuracy = compute_accuracy(batch_size, model, test_dataset)
+                epoch_accuracies.append(accuracy)
 
         eval_accuracy = compute_accuracy(batch_size, model, eval_dataset)
         print('[%d, %5d] loss: %.3f, accuracy: %.2f' %
@@ -163,8 +198,102 @@ def discriminator_accuracy(train_dataset, eval_dataset, test_dataset, num_channe
     print("test discriminator on test set")
     model.load_state_dict(best_model_state_dict)
     accuracy = compute_accuracy(batch_size, model, test_dataset)
+    model.to("cpu")
     print(f"Test accuracy {accuracy}")
-    return accuracy
+    return accuracy, epoch_accuracies
+
+
+def compute_fids(encode, decode, dataset, random_state, num_pics=512):
+    real_pics = dataset.sample_observations(num_pics, random_state)
+    means, logvars = encode(real_pics)
+    pics = decode(means)
+
+    z_dim=means.shape[1]
+
+    store_pics_array_to_folder(pics, os.path.join("reconstructions"))
+    store_pics_array_to_folder(real_pics, os.path.join("real_pics"))
+    other_real_pics = dataset.sample_observations(num_pics, random_state)
+    store_pics_array_to_folder(other_real_pics, os.path.join("other_real_pics"))
+    del other_real_pics
+
+    # plot images sampled from prior
+    random_codes = random_state.normal(0, 1, [num_pics, z_dim])
+    xs = decode(random_codes)
+    pics = xs
+    store_pics_array_to_folder(pics, os.path.join("samples_gaussian"))
+
+    # plot images sampled uniformly from min/max range
+    random_codes = (np.max(means, axis=0) - np.min(means, axis=0)) * random_state.random_sample(
+        (num_pics, z_dim)) + np.min(
+        means,
+        axis=0)
+    xs = decode(random_codes)
+    pics = xs
+    store_pics_array_to_folder(pics, os.path.join("samples_uniform"))
+
+    # plot images sampled from aggregated posterior
+    random_codes = np.zeros((num_pics, z_dim))
+    for j in range(z_dim):
+      indices = random_state.permutation(range(num_pics))
+      random_codes[:, j] = means[indices, j]
+    xs = decode(random_codes)
+    pics = xs
+    store_pics_array_to_folder(pics, os.path.join("samples_posterior"))
+
+    # plot images sampled from fitted gaussian distribution
+    random_codes = np.zeros((num_pics, z_dim))
+    for j in range(z_dim):
+      loc = np.mean(means[:, j])
+      total_variance = np.mean(np.exp(logvars[:, j])) + np.var(means[:, j])
+      random_codes[:, j] = random_state.normal(loc, total_variance, (num_pics))
+    xs = decode(random_codes)
+    pics = xs
+    store_pics_array_to_folder(pics, os.path.join("samples_fitted_gaussian"))
+    
+    fids = []
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    fid = FidScore([os.path.join("samples_uniform"),
+                    os.path.join("reconstructions")], torch.device(device), batch_size=16)
+    score = fid.calculate_fid_score()
+    fids.append(score)
+    print(f"The FID score of reconstructed vs sampled_uniform images is: {score}")
+    fid = FidScore([os.path.join("samples_posterior"),
+                    os.path.join("reconstructions")], torch.device(device), batch_size=16)
+    score = fid.calculate_fid_score()
+    fids.append(score)
+    print(f"The FID score of reconstructed vs sampled_posterior images is: {score}")
+    fid = FidScore([os.path.join("samples_fitted_gaussian"),
+                    os.path.join("reconstructions")], torch.device(device), batch_size=16)
+    score = fid.calculate_fid_score()
+    fids.append(score)
+    print(f"The FID score of reconstructed vs samples_fitted_gaussian images is: {score}")
+    fid = FidScore([os.path.join("samples_uniform"),
+                    os.path.join("real_pics")], torch.device(device), batch_size=16)
+    score = fid.calculate_fid_score()
+    fids.append(score)
+    print(f"The FID score of real_pics vs sampled_uniform images is: {score}")
+    fid = FidScore([os.path.join("samples_posterior"),
+                    os.path.join("real_pics")], torch.device(device), batch_size=16)
+    score = fid.calculate_fid_score()
+    fids.append(score)
+    print(f"The FID score of real_pics vs samples_posterior images is: {score}")
+    fid = FidScore([os.path.join("samples_fitted_gaussian"),
+                    os.path.join("real_pics")], torch.device(device), batch_size=16)
+    score = fid.calculate_fid_score()
+    fids.append(score)
+    print(f"The FID score of real_pics vs samples_fitted_gaussian images is: {score}")
+    fid = FidScore([os.path.join("reconstructions"),
+                    os.path.join("real_pics")], torch.device(device), batch_size=16)
+    score = fid.calculate_fid_score()
+    fids.append(score)
+    print(f"The FID score of reconstructions vs real_pics images is: {score}")
+    fid = FidScore([os.path.join("reconstructions"),
+                    os.path.join("other_real_pics")], torch.device(device), batch_size=16)
+    score = fid.calculate_fid_score()
+    fids.append(score)
+    print(f"The FID score of reconstructions vs other_real_pics images is: {score}")
+
+    return fids
 
 
 def compute_accuracy(batch_size, model, test_dataset):
@@ -204,11 +333,11 @@ def generate_dataset_from_numpy(images, labels):
 
 
 def generate_reconstructed_sampled(N, batch_size, compute_gaussian_kl, decode, encode, ground_truth_data, random_state,
-                                   reconstruct, z_dim, pytorch=False):
+                                   reconstruct, z_dim, pytorch=False, uniform=True):
     nr_batches = int(N / batch_size)
-    means = np.zeros((N, z_dim))
-    logvars = np.zeros((N, z_dim))
-    sampled = np.zeros((N, z_dim))
+    means = None
+    logvars = None
+    sampled = None
     tcs = np.zeros(nr_batches)
     reconstructed_images = []
     print("get dataset of reconstructed images")
@@ -219,6 +348,11 @@ def generate_reconstructed_sampled(N, batch_size, compute_gaussian_kl, decode, e
         else:
             images = ground_truth_data.sample_observations(batch_size, random_state)
         mean, logvar = encode(images)
+        if means is None:
+            z_dim = mean.shape[1]
+            means = np.zeros((N, z_dim))
+            logvars = np.zeros((N, z_dim))
+            sampled = np.zeros((N, z_dim))
         reconstructed = reconstruct(images)
         means[i * batch_size: (i + 1) * batch_size] = mean
         logvars[i * batch_size: (i + 1) * batch_size] = logvar
@@ -232,8 +366,17 @@ def generate_reconstructed_sampled(N, batch_size, compute_gaussian_kl, decode, e
     inactive = [i for i in range(z_dim) if kl_divs[i] <= 0.01]
     n_active = len(active)
     print("get dataset of sampled images")
-    random_code = (np.max(means, axis=0) - np.min(means, axis=0)) * random_state.random_sample((N, z_dim)) + np.min(means,
+    if uniform:
+        print("sample uniform")
+        random_code = (np.max(means, axis=0) - np.min(means, axis=0)) * random_state.random_sample((N, z_dim)) + np.min(means,
                                                                                                                  axis=0)
+    else:
+        print("sample aggregated posterior")
+        random_code = np.zeros((N, z_dim))
+        for j in range(z_dim):
+            indices = random_state.permutation(N)
+            random_code[:, j] = means[indices, j]
+
     sampled_images = []
     for i in range(nr_batches):
         images = decode(random_code[i * batch_size: (i + 1) * batch_size])
@@ -242,7 +385,7 @@ def generate_reconstructed_sampled(N, batch_size, compute_gaussian_kl, decode, e
 
 
 def generate_original_sampled(N, batch_size, compute_gaussian_kl, decode, encode, ground_truth_data, random_state,
-                                   reconstruct, z_dim):
+                                   reconstruct, z_dim, uniform=True):
     nr_batches = int(N / batch_size)
     means = np.zeros((N, z_dim))
     logvars = np.zeros((N, z_dim))
@@ -263,11 +406,16 @@ def generate_original_sampled(N, batch_size, compute_gaussian_kl, decode, encode
     n_active = len(active)
 
     print("get dataset of sampled images")
-    random_code = np.zeros((N, z_dim))
-    for i in range(z_dim):
-        random_code[:, i] = random_state.choice(means[:, i], size=N, replace=True)
-    #random_code = (np.max(means, axis=0) - np.min(means, axis=0)) * random_state.random_sample((N, 10)) + np.min(means,
-    #                                                                                                             axis=0)
+    if uniform:
+        print("sample uniform")
+        random_code = (np.max(means, axis=0) - np.min(means, axis=0)) * random_state.random_sample((N, z_dim))\
+                      + np.min(means, axis=0)
+    else:
+        print("sample aggregated posterior")
+        random_code = np.zeros((N, z_dim))
+        for j in range(z_dim):
+            indices = random_state.permutation(N)
+            random_code[:,j] = means[indices, j]
     sampled_images = []
     for i in range(nr_batches):
         images = decode(random_code[i * batch_size: (i + 1) * batch_size])
@@ -359,3 +507,16 @@ def total_correlation(z,
         axis=1
     ) + constant
     return np.mean(log_qz - log_qz_product)
+
+
+def store_pics_array_to_folder(pics: np.ndarray, store_path: str):
+  nr_pics = len(pics)
+  os.makedirs(store_path, exist_ok=True)
+  nr_color_channels = pics.shape[-1]
+  for i in range(nr_pics):
+    image_store_path = os.path.join(store_path, f"{i}.jpg")
+    if nr_color_channels == 1:
+      from skimage.color import gray2rgb
+      Image.fromarray(gray2rgb(pics[i]*255.).astype(np.uint8).reshape((64,64,3))).save(image_store_path)
+    else:
+      Image.fromarray((pics[i]*255.).astype(np.uint8)).save(image_store_path)
