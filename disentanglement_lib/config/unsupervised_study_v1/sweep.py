@@ -36,7 +36,7 @@ def get_datasets():
       "dataset.name",
       h.categorical([
           "dsprites_full", "color_dsprites", "noisy_dsprites",
-          "scream_dsprites", "smallnorb", "cars3d", "shapes3d"
+          "scream_dsprites", "smallnorb", "cars3d", "shapes3d", "mpi3d_toy"
       ]))
 
 def get_num_models():
@@ -76,7 +76,7 @@ def get_default_models():
   # FactorVAE config.
   model_name = h.fixed("model.name", "factor_vae")
   model_fn = h.fixed("model.model", "@factor_vae()")
-  discr_fn = h.fixed("discriminator.discriminator_fn", "@fc_discriminator")
+  discr_fn = h.fixed("discriminator_.discriminator_fn", "@fc_discriminator")
 
   gammas = h.sweep("factor_vae.gamma",
                    h.discrete([10., 20., 30., 40., 50., 100.]))

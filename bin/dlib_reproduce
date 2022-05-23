@@ -97,7 +97,7 @@ def main(unused_argv):
         "model.model_num = {}".format(FLAGS.model_num),
     ] + model_bindings
     train.train_with_gin(model_dir, FLAGS.overwrite, [model_config_file],
-                         model_bindings)
+                         model_bindings, pytorch=False)
   else:
     logging.info("Skipped training...")
     model_dir = FLAGS.model_dir
