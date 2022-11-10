@@ -25,6 +25,7 @@ from disentanglement_lib.data.ground_truth import mpi3d
 from disentanglement_lib.data.ground_truth import norb
 from disentanglement_lib.data.ground_truth import shapes3d
 from disentanglement_lib.data.ground_truth import numpy_array
+from disentanglement_lib.data.ground_truth import max_entropy_toy
 import gin.tf
 
 
@@ -69,6 +70,18 @@ def get_named_ground_truth_data(name):
     return shapes3d.Shapes3D()
   elif name == "numpy_array_data":
     return numpy_array.NumpyArrayData()
+  elif name == "color_stripes":
+    return max_entropy_toy.ColorStripes()
+  elif name == "color_chessboard":
+    return max_entropy_toy.ColorChessboard()
+  elif name == "color_chessboardme":
+    return max_entropy_toy.ColorChessboardMe()
+  elif name == "color_chessboardrandmebw":
+    return max_entropy_toy.ColorChessboardRandMeBw()
+  elif name == "color_chessboardmebw":
+    return max_entropy_toy.ColorChessboardMeBw()
+  elif name == "line_vertical":
+    return max_entropy_toy.LineVertical()
   elif name == "dummy_data":
     return dummy_data.DummyData()
   else:

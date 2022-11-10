@@ -39,6 +39,7 @@ from disentanglement_lib.evaluation.metrics import strong_downstream_task  # pyl
 from disentanglement_lib.evaluation.metrics import unified_scores  # pylint: disable=unused-import
 from disentanglement_lib.evaluation.metrics import unsupervised_metrics  # pylint: disable=unused-import
 from disentanglement_lib.evaluation.metrics import discriminator  # pylint: disable=unused-import
+from disentanglement_lib.evaluation.metrics import cgap  # pylint: disable=unused-import
 from disentanglement_lib.utils import results
 import numpy as np
 import tensorflow.compat.v1 as tf
@@ -89,7 +90,8 @@ def evaluate(model_dir,
              random_seed=gin.REQUIRED,
              unsupervised=False,
              name="",
-             dataset_cache=None):
+             dataset_cache=None,
+             full_size=False):
   """Loads a representation TFHub module and computes disentanglement metrics.
 
   Args:
@@ -102,6 +104,8 @@ def evaluate(model_dir,
     random_seed: Integer with random seed used for training.
     unsupervised: Flag to tell if evaluation_fn is unsupervised and needs decoder as input too
     name: Optional string with name of the metric (can be used to name metrics).
+    dataset_cache: cached dataset to avoid reloading from disk everytime
+    full_size: if true, bigvae will output in 128x128 instead of 64x64
   """
   # Delete the output directory if it already exists.
   if tf.gfile.IsDirectory(output_dir):
@@ -257,7 +261,7 @@ def evaluate(model_dir,
       vae = aaae.dislibvae.BetaTCVAE(z_dim, num_channels, 1, use_batch_norm=use_batch_norm,
                                      use_layer_norm=use_layer_norm, use_instance_norm=use_instance_norm)
     else:
-      vae = aaae.dislibvae.BigBetaTCVAE(z_dim, num_channels, 1, use_batch_norm=use_batch_norm)
+      vae = aaae.dislibvae.BigBetaTCVAE(z_dim, num_channels, 1, use_batch_norm=use_batch_norm, full_size=full_size)
 
     # device = torch.cuda.device(0) if torch.cuda.is_available() else torch.device("cpu")
     vae.load_state_dict(checkpoint_vae, strict=False)
