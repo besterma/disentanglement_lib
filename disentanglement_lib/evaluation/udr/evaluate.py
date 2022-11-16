@@ -35,6 +35,7 @@ import numpy as np
 import tensorflow.compat.v1 as tf
 import tensorflow_hub as hub
 import gin.tf
+from scipy import stats
 
 FLAGS = flags.FLAGS
 
@@ -45,8 +46,11 @@ def evaluate(model_dirs,
              evaluation_fn=gin.REQUIRED,
              random_seed=gin.REQUIRED,
              name="",
-             dataset_cache=None):
-  """Loads a trained estimator and evaluates it according to beta-VAE metric."""
+             dataset_cache=None,
+             unsupervised=False):
+  """Loads a trained estimator and evaluates it according to beta-VAE metric.
+  unsupervised: If True, provide both encoder and decoder to the evaluation_fn
+  """
   # The name will be part of the gin config and can be used to tag results.
   del name
 
@@ -82,26 +86,55 @@ def evaluate(model_dirs,
             hub.eval_function_for_module(os.path.join(model_dir, "tfhub")))
         for model_dir in model_dirs
     ]
-    for f in eval_functions:
+    if unsupervised:
+        encoders = []
+        decoders = []
 
-      def _representation_function(x, f=f):
+        for f in eval_functions:
+            def _encoder(x, f=f):
+                """Computes representation vector for input images."""
+                output_sampled = f(dict(images=x), signature="gaussian_encoder", as_dict=True)
+                return np.array(output_sampled["mean"]), np.array(output_sampled["logvar"])
+            encoders.append(_encoder)
 
-        def compute_gaussian_kl(z_mean, z_logvar):
-          return np.mean(
-              0.5 * (np.square(z_mean) + np.exp(z_logvar) - z_logvar - 1),
-              axis=0)
+            def sigmoid(x):
+                return stats.logistic.cdf(x)
 
-        encoding = f(dict(images=x), signature="gaussian_encoder", as_dict=True)
+            def _decoder(latent_vectors, f=f):
+                output = f(
+                    dict(latent_vectors=latent_vectors),
+                    signature="decoder",
+                    as_dict=True)
+                return sigmoid(np.array(output["images"]))  # for some reason we need the activation function here
+            decoders.append(_decoder)
+        results_dict = evaluation_fn(
+            dataset,
+            encoders,
+            decoders,
+            random_state=np.random.RandomState(random_seed)
+        )
 
-        return np.array(encoding["mean"]), compute_gaussian_kl(
-            np.array(encoding["mean"]), np.array(encoding["logvar"]))
+    else:
+        for f in eval_functions:
 
-      representation_functions.append(_representation_function)
+          def _representation_function(x, f=f):
 
-    results_dict = evaluation_fn(
-        dataset,
-        representation_functions,
-        random_state=np.random.RandomState(random_seed))
+            def compute_gaussian_kl(z_mean, z_logvar):
+              return np.mean(
+                  0.5 * (np.square(z_mean) + np.exp(z_logvar) - z_logvar - 1),
+                  axis=0)
+
+            encoding = f(dict(images=x), signature="gaussian_encoder", as_dict=True)
+
+            return np.array(encoding["mean"]), compute_gaussian_kl(
+                np.array(encoding["mean"]), np.array(encoding["logvar"]))
+
+          representation_functions.append(_representation_function)
+
+        results_dict = evaluation_fn(
+            dataset,
+            representation_functions,
+            random_state=np.random.RandomState(random_seed))
 
   original_results_dir = os.path.join(model_dirs[0], "results")
   results_dir = os.path.join(output_dir, "results")

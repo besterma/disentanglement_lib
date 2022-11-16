@@ -319,7 +319,6 @@ def evaluate(model_dir,
     module_path = os.path.join(model_dir, "tfhub")
     with hub.eval_function_for_module(module_path) as f:
 
-
       if unsupervised:
         def _encoder(x):
           """Computes representation vector for input images."""

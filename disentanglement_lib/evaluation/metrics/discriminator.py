@@ -87,7 +87,7 @@ def compute_discriminator(ground_truth_data,
     for num_samples in train_dataset_sizes:
         print(f"Working on {num_samples}")
         bs = int(np.min((num_samples // 15, batch_size)))
-        accuracies, epoch_accuracies, kl_divs, n_active, tc, fids = discriminator_overall_accuracy(bs, decode, encode, ground_truth_data, num_samples,
+        accuracies, epoch_accuracies, kl_divs, n_active, tc, fids, rec_loss = discriminator_overall_accuracy(bs, decode, encode, ground_truth_data, num_samples,
                                                   random_state, reconstruct, generate_reconstructed_sampled, z_dim,
                                                                          uniform, num_runs, compute_fid)
         score_dict[f"accuracy.{num_samples}"] = np.median(accuracies)
@@ -98,6 +98,7 @@ def compute_discriminator(ground_truth_data,
         score_dict[f"n_active.{num_samples}"] = n_active
         score_dict[f"tc.{num_samples}"] = tc
         score_dict["fids"] = fids
+        score_dict["reconstruction_loss"] = rec_loss
 
     del artifact_dir
     return score_dict
@@ -111,7 +112,7 @@ def discriminator_overall_accuracy(batch_size, decode, encode, ground_truth_data
             axis=0)
 
     N = num_samples - (num_samples % batch_size)
-    class_one_images, class_two_images, kl_divs, n_active, tc = image_group_generator(N, batch_size, compute_gaussian_kl, decode,
+    class_one_images, class_two_images, kl_divs, n_active, tc, rec_loss = image_group_generator(N, batch_size, compute_gaussian_kl, decode,
                                                                           encode, ground_truth_data, random_state,
                                                                           reconstruct, z_dim, uniform=uniform)
 
@@ -149,7 +150,9 @@ def discriminator_overall_accuracy(batch_size, decode, encode, ground_truth_data
         fids = compute_fids(encode, decode, ground_truth_data, random_state=random_state)
     else:
         fids = None
-    return accuracies, epoch_accuracies, kl_divs, n_active, tc, fids
+    #compute reconstruction loss
+
+    return accuracies, epoch_accuracies, kl_divs, n_active, tc, fids, rec_loss
 
 
 @torch.enable_grad()
@@ -339,6 +342,7 @@ def generate_reconstructed_sampled(N, batch_size, compute_gaussian_kl, decode, e
     logvars = None
     sampled = None
     tcs = np.zeros(nr_batches)
+    reconstruction_losses = np.zeros(nr_batches)
     reconstructed_images = []
     print("get dataset of reconstructed images")
     for i in range(nr_batches):
@@ -360,6 +364,8 @@ def generate_reconstructed_sampled(N, batch_size, compute_gaussian_kl, decode, e
         tcs[i] = total_correlation(sample, mean, logvar, N)
         sampled[i * batch_size: (i + 1) * batch_size] = sample
         reconstructed_images.append(reconstructed)
+        reconstruction_losses[i] = ((images - reconstructed) ** 2).mean()
+
     kl_divs = compute_gaussian_kl(means, logvars)
     tc = tcs.mean()
     active = [i for i in range(z_dim) if kl_divs[i] > 0.01]
@@ -381,7 +387,7 @@ def generate_reconstructed_sampled(N, batch_size, compute_gaussian_kl, decode, e
     for i in range(nr_batches):
         images = decode(random_code[i * batch_size: (i + 1) * batch_size])
         sampled_images.append(images)
-    return reconstructed_images, sampled_images, kl_divs, n_active, tc
+    return reconstructed_images, sampled_images, kl_divs, n_active, tc, reconstruction_losses.mean()
 
 
 def generate_original_sampled(N, batch_size, compute_gaussian_kl, decode, encode, ground_truth_data, random_state,
@@ -390,6 +396,7 @@ def generate_original_sampled(N, batch_size, compute_gaussian_kl, decode, encode
     means = np.zeros((N, z_dim))
     logvars = np.zeros((N, z_dim))
     sampled = np.zeros((N, z_dim))
+    reconstruction_losses = np.zeros(nr_batches)
 
     original_images = []
     print("get dataset of original images")
@@ -400,6 +407,9 @@ def generate_original_sampled(N, batch_size, compute_gaussian_kl, decode, encode
         logvars[i * batch_size: (i + 1) * batch_size] = logvar
         sampled[i * batch_size: (i + 1) * batch_size] = mean + np.exp(logvar / 2) * np.random.normal(0, 1, batch_size)
         original_images.append(images)
+        reconstructed = reconstruct(images)
+        reconstruction_losses[i] = ((images - reconstructed) ** 2).mean()
+
     kl_divs = compute_gaussian_kl(means, logvars)
     tc = total_correlation(sampled, means, logvars, N)
     active = [i for i in range(z_dim) if kl_divs[i] > 0.01]
@@ -420,7 +430,7 @@ def generate_original_sampled(N, batch_size, compute_gaussian_kl, decode, encode
     for i in range(nr_batches):
         images = decode(random_code[i * batch_size: (i + 1) * batch_size])
         sampled_images.append(images)
-    return original_images, sampled_images, kl_divs, n_active, tc
+    return original_images, sampled_images, kl_divs, n_active, tc, reconstruction_losses.mean()
 
 
 def compute_importance_gbtregressor(x_train, y_train, x_test, y_test):
